@@ -214,61 +214,83 @@ function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
 function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
-// Preserve the v0.3.6 run-off exactly, then add an optional randomized tumble.
-// Phase 1: fast, forward and outward drift with NO rotation.
-// Phase 2: after fully leaving the course, slide, roll or flip at random.
+// v0.3.8: keep the fast forward/outward exit, then show the actual
+// random tumble while the car is still near the rail and inside the scene.
+// The previous 1.05s exit phase moved the vehicle far out of view before
+// any rotation occurred, so all four variants appeared identical.
+let lastCrashVariant=-1;
+const CRASH_VARIANTS=[
+ {id:'slide',label:'滑走'},
+ {id:'roll',label:'横転'},
+ {id:'flip',label:'前転'},
+ {id:'spin',label:'激しい回転'}
+];
 function startCrashAnimation(){
  const r=race;if(!r)return;
  const pos=carContainer.position.clone();
  const p0=oval(Math.min(.9999,r.distance/ovalLength));
  const p1=oval((r.distance+.08)/ovalLength);
  const forward=new THREE.Vector3(p1.x-p0.x,0,p1.z-p0.z).normalize();
+ // Retain the exiting direction established in v0.3.6.
  const outward=new THREE.Vector3(forward.z,0,-forward.x);
  const speed=Math.max(8,r.v);
- const variants=['slide','roll','flip','spin'];
- const variant=variants[Math.floor(Math.random()*variants.length)];
+ // Choose all four types without ever repeating the immediately previous one.
+ const choices=CRASH_VARIANTS.map((_,i)=>i).filter(i=>i!==lastCrashVariant);
+ const variantIndex=choices[Math.floor(Math.random()*choices.length)];
+ lastCrashVariant=variantIndex;
+ const variant=CRASH_VARIANTS[variantIndex];
  const direction=Math.random()<.5?-1:1;
- const revolutions=variant==='slide'?0:variant==='roll'?1+Math.floor(Math.random()*2):variant==='flip'?1:2+Math.floor(Math.random()*2);
- r.crash={active:true,t:0,exitDuration:1.05,fallDuration:variant==='slide'?.65:1.05,
-  start:pos,forward,outward,speed,orientation:carContainer.quaternion.clone(),
-  variant,direction,revolutions};
+ // Start falling as soon as the whole vehicle has passed the outer rail,
+ // rather than waiting until it is many metres away / outside the camera.
+ const exitDuration=THREE.MathUtils.clamp(1.10/(speed*.32),.21,.40);
+ const fallDuration=variant.id==='slide'?.80:1.18;
+ const spinAngle=variant.id==='roll'?direction*(Math.PI*(1.5+Math.random())):
+                 variant.id==='flip'?direction*(Math.PI*(1.5+Math.random())):
+                 variant.id==='spin'?direction*(Math.PI*(3.2+Math.random()*1.8)):0;
+ r.crash={active:true,t:0,exitDuration,fallDuration,
+   start:pos,forward,outward,speed,orientation:carContainer.quaternion.clone(),
+   variant:variant.id,label:variant.label,direction,spinAngle};
 }
 function updateCrashAnimation(dt){
  const c=race?.crash;if(!c?.active)return;
  c.t=Math.min(c.exitDuration+c.fallDuration,c.t+dt);
- // This is intentionally unchanged from v0.3.6, with no spin until the exit ends.
  const t=Math.min(c.t,c.exitDuration);
+ // Phase 1: preserve the previous fast, straight-out motion (no rotation).
  const forwardDistance=c.speed*1.18*t;
  const outwardDistance=c.speed*(.32*t+.16*t*t);
  carContainer.position.copy(c.start)
-   .addScaledVector(c.forward,forwardDistance)
-   .addScaledVector(c.outward,outwardDistance);
+  .addScaledVector(c.forward,forwardDistance)
+  .addScaledVector(c.outward,outwardDistance);
  carContainer.position.y=TRACK_CAR_Y;
  carContainer.quaternion.copy(c.orientation);
  if(c.t>c.exitDuration){
   const e=c.t-c.exitDuration;
   const u=Math.min(1,e/c.fallDuration);
-  const travel=(1-Math.pow(1-u,2));
-  // Inertia fades after departure, but the car never snaps backwards.
-  carContainer.position.addScaledVector(c.forward,c.speed*.36*c.fallDuration*travel);
-  carContainer.position.addScaledVector(c.outward,c.speed*.13*c.fallDuration*travel);
+  // Ground friction quickly dissipates the sliding energy after leaving track.
+  // Extra travel stays close enough to the rail to show the variation.
+  const travel=1-Math.pow(1-u,2.5);
+  carContainer.position.addScaledVector(c.forward,c.speed*.13*travel);
+  carContainer.position.addScaledVector(c.outward,c.speed*.055*travel);
   if(c.variant==='slide'){
-   carContainer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),c.direction*u*.35));
+   carContainer.quaternion.premultiply(
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),c.direction*.27*u));
   }else{
-   // The vehicle keeps its initial heading until its wheels have left the track.
-   // These are world-space rotations; no forced reversal during flight.
+   // Rotation is visible after exit: roll around longitudinal heading,
+   // flip around lateral axle, or spin around a diagonal world-space axis.
    const axis=c.variant==='roll'?c.forward:
-     c.variant==='flip'?c.outward:new THREE.Vector3(.35,c.direction*.6,.72).normalize();
-   const spin=2*Math.PI*c.revolutions*(1-Math.pow(1-u,1.2));
-   carContainer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,c.direction*spin));
-   // A short bounce only after the departure. Keep the car above the flat ground.
-   const bounce=Math.abs(Math.sin(Math.PI*u))*(c.variant==='flip'?.53:.36);
-   carContainer.position.y=TRACK_CAR_Y+bounce+(c.variant==='flip'?.11:.07)*u;
+     c.variant==='flip'?c.outward:
+     new THREE.Vector3(c.forward.x*.60+c.outward.x*.25,.42*c.direction,
+                       c.forward.z*.60+c.outward.z*.25).normalize();
+   const spin=c.spinAngle*(1-Math.pow(1-u,1.3));
+   carContainer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,spin));
+   // Small contact bounce, no giant jump or reversal of movement.
+   carContainer.position.y=TRACK_CAR_Y+Math.sin(Math.PI*u)*
+     (c.variant==='spin'?.44:c.variant==='flip'?.30:.22);
   }
  }
  if(c.t>=c.exitDuration+c.fallDuration)c.active=false;
 }
-function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?'コースアウト演出':r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
+function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0};
@@ -282,8 +304,8 @@ function stopRace(failed){
  const report=`微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
  if(failed){
   startCrashAnimation();
-  $('resultTime').textContent='COURSE OUT';$('delta').textContent='マシンがコース外へ飛び出しました';
-  $('runLog').textContent=`コースアウト：${(r.distance/ovalLength*100).toFixed(0)}%地点。${report} 飛び出し演出を再生します。ローラーやタイヤ、ダンパーを見直すか、最高速を抑えてください。`;
+  $('resultTime').textContent='COURSE OUT';$('delta').textContent='コースアウト：'+r.crash.label;
+  $('runLog').textContent=`コースアウト：${(r.distance/ovalLength*100).toFixed(0)}%地点。${report} 飛び出し後の演出：${r.crash.label}。ローラーやタイヤ、ダンパーを見直すか、最高速を抑えてください。`;
  }else{
   const t=r.time;$('resultTime').textContent=t.toFixed(2)+' s';const better=before==null||t<before;
   $('delta').textContent=before==null?'初回計測完了':`${t<before?'ベスト更新：':'ベストとの差：'}${Math.abs(t-before).toFixed(2)} 秒${t<before?' 短縮':' 遅い'}`;
