@@ -255,37 +255,39 @@ function updateCrashAnimation(dt){
  const c=race?.crash;if(!c?.active)return;
  c.t=Math.min(c.exitDuration+c.fallDuration,c.t+dt);
  const t=Math.min(c.t,c.exitDuration);
- // Phase 1: preserve the previous fast, straight-out motion (no rotation).
+ // Stage 1: keep the already-approved fast, forward-moving course exit.
  const forwardDistance=c.speed*1.18*t;
  const outwardDistance=c.speed*(.32*t+.16*t*t);
  carContainer.position.copy(c.start)
-  .addScaledVector(c.forward,forwardDistance)
-  .addScaledVector(c.outward,outwardDistance);
+   .addScaledVector(c.forward,forwardDistance)
+   .addScaledVector(c.outward,outwardDistance);
  carContainer.position.y=TRACK_CAR_Y;
  carContainer.quaternion.copy(c.orientation);
  if(c.t>c.exitDuration){
   const e=c.t-c.exitDuration;
   const u=Math.min(1,e/c.fallDuration);
-  // Ground friction quickly dissipates the sliding energy after leaving track.
-  // Extra travel stays close enough to the rail to show the variation.
-  const travel=1-Math.pow(1-u,2.5);
-  carContainer.position.addScaledVector(c.forward,c.speed*.13*travel);
-  carContainer.position.addScaledVector(c.outward,c.speed*.055*travel);
+  // Stage 2: continue moving with the SAME velocity at the instant of exit.
+  // Air/ground resistance slows the machine progressively, NEVER freezes it
+  // at a fixed location while the tumble animation is playing.
+  const drag=1.10; // 1/sec; initial velocity is continuous across the phase boundary
+  const move=(1-Math.exp(-drag*e))/drag;
+  const forwardVelocity=c.speed*1.18;
+  const outwardVelocity=c.speed*(.32+.32*c.exitDuration);
+  carContainer.position.addScaledVector(c.forward,forwardVelocity*move);
+  carContainer.position.addScaledVector(c.outward,outwardVelocity*move);
   if(c.variant==='slide'){
    carContainer.quaternion.premultiply(
-    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),c.direction*.27*u));
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),c.direction*.20*u));
   }else{
-   // Rotation is visible after exit: roll around longitudinal heading,
-   // flip around lateral axle, or spin around a diagonal world-space axis.
+   // Rotation and translation happen simultaneously throughout the tumble.
    const axis=c.variant==='roll'?c.forward:
-     c.variant==='flip'?c.outward:
-     new THREE.Vector3(c.forward.x*.60+c.outward.x*.25,.42*c.direction,
-                       c.forward.z*.60+c.outward.z*.25).normalize();
-   const spin=c.spinAngle*(1-Math.pow(1-u,1.3));
+    c.variant==='flip'?c.outward:
+    new THREE.Vector3(c.forward.x*.60+c.outward.x*.25,.42*c.direction,
+                      c.forward.z*.60+c.outward.z*.25).normalize();
+   const spin=c.spinAngle*u;
    carContainer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,spin));
-   // Small contact bounce, no giant jump or reversal of movement.
-   carContainer.position.y=TRACK_CAR_Y+Math.sin(Math.PI*u)*
-     (c.variant==='spin'?.44:c.variant==='flip'?.30:.22);
+   const bounce=Math.abs(Math.sin(Math.PI*u*(c.variant==='spin'?3:2)))*(1-u);
+   carContainer.position.y=TRACK_CAR_Y+bounce*(c.variant==='spin'?.36:c.variant==='flip'?.24:.17);
   }
  }
  if(c.t>=c.exitDuration+c.fallDuration)c.active=false;
