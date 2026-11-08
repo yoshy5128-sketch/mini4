@@ -95,13 +95,31 @@ const controls=new OrbitControls(camera,renderer.domElement);controls.target.set
 scene.add(new THREE.HemisphereLight(0xaadffc,0x1c2b37,2.1));const sun=new THREE.DirectionalLight(0xffeee0,3.6);sun.position.set(4,9,5);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-12;sun.shadow.camera.right=12;sun.shadow.camera.top=12;sun.shadow.camera.bottom=-12;scene.add(sun);
 const ambientGlow=new THREE.PointLight(0x30bfff,18,7);ambientGlow.position.set(-3,2,-2);scene.add(ambientGlow);
 const garageGroup=new THREE.Group();scene.add(garageGroup);const trackGroup=new THREE.Group();trackGroup.visible=false;scene.add(trackGroup);const carContainer=new THREE.Group();scene.add(carContainer);
-// Temporary championship backdrop. This is a 2D wall behind the 3D course,
-// not an environment map: it can be disabled when orbiting to the reverse side.
+// Ver.0.4.4: Four inward-facing championship arena walls.
+// Separate arena-only 3D group; no impact on track geometry or physics.
 const arenaBackdrop = new THREE.Group();scene.add(arenaBackdrop);arenaBackdrop.visible=false;
 new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
  tex.colorSpace=THREE.SRGBColorSpace;
- const wall=new THREE.Mesh(new THREE.PlaneGeometry(84,41.54),new THREE.MeshBasicMaterial({map:tex,side:THREE.DoubleSide,fog:false,depthWrite:false}));
- wall.position.set(0,18,-26);wall.renderOrder=-1;arenaBackdrop.add(wall);
+ tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+ const arenaSize=280,half=arenaSize/2;
+ const panelHeight=arenaSize*(tex.image.height/tex.image.width);
+ const material=new THREE.MeshBasicMaterial({map:tex,side:THREE.FrontSide,fog:false,depthWrite:false,depthTest:true});
+ const panelGeometry=new THREE.PlaneGeometry(arenaSize,panelHeight);
+ const specs=[
+  {label:'北',x:0,z:-half,rotation:0},
+  {label:'南',x:0,z:half,rotation:Math.PI},
+  {label:'東',x:half,z:0,rotation:-Math.PI/2},
+  {label:'西',x:-half,z:0,rotation:Math.PI/2}
+ ];
+ for(const side of specs){
+  const wall=new THREE.Mesh(panelGeometry,material);
+  wall.name='大会背景 '+side.label;
+  wall.position.set(side.x,55,side.z);
+  wall.rotation.y=side.rotation;
+  wall.renderOrder=-1;
+  wall.frustumCulled=false;
+  arenaBackdrop.add(wall);
+ }
 },undefined,error=>{console.warn('大会背景画像を読み込めませんでした',error)});
 function syncArenaBackdrop(){arenaBackdrop.visible=screen==='test' && $('arenaBackground').checked;}
 const mat=(color,metalness=0,roughness=.55)=>new THREE.MeshStandardMaterial({color,metalness,roughness});
