@@ -28,7 +28,7 @@ function getStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key
 let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
 if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
 cfg.parts={...defaults,...cfg.parts};for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
-let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
+let records=getStorage(recordsKey,{});let cameraMode='overview',activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
 const choose=k=>GROUPS.find(x=>x.key===k).parts[cfg.parts[k]];
 const TRACK_SCALE=3;
 // v0.2: model-scale metres and seconds; tuned for Mini 4WD-like 30–60 km/h.
@@ -186,17 +186,49 @@ function fitTrackCamera(){
  controls.maxDistance=Math.max(110,requiredDistance*2.5);
  camera.updateProjectionMatrix();
 }
-function setView(view){if(screen==='test'){fitTrackCamera();}
+function setView(view){if(screen==='test'){setRaceCamera('overview');fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
+function setScreen(mode){screen=mode;const testing=mode==='test';cameraMode='overview';controls.enabled=true;$('raceCamera').classList.toggle('hidden',!testing);updateCameraButtons();$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
+// Chase camera creates speed sensation without changing physics, times, or results.
+// Switch back to overview for free OrbitControls and the entire course.
+const chaseAim=new THREE.Vector3(),chasePos=new THREE.Vector3();
+function updateCameraButtons(){
+ $('followCamera').classList.toggle('active',cameraMode==='follow');
+ $('overviewCamera').classList.toggle('active',cameraMode==='overview');
+}
+function updateChaseCamera(snap=false){
+ if(screen!=='test'||cameraMode!=='follow')return;
+ const distance=race?Math.min(race.distance,ovalLength):0;
+ const sample=oval(distance/ovalLength);
+ const fwd=new THREE.Vector3(Math.cos(sample.ang),0,Math.sin(sample.ang));
+ const side=new THREE.Vector3(-Math.sin(sample.ang),0,Math.cos(sample.ang));
+ const portrait=camera.aspect<0.8;
+ chaseAim.set(sample.x,0.20,sample.z).addScaledVector(fwd,portrait?1.15:1.8);
+ chasePos.set(sample.x,0,sample.z).addScaledVector(fwd,portrait?-3.6:-4.0).addScaledVector(side,portrait?1.5:2.4);
+ chasePos.y=portrait?3.0:2.55;
+ if(snap){camera.position.copy(chasePos);controls.target.copy(chaseAim)}
+ else {const blend=1-Math.exp(-9/60);camera.position.lerp(chasePos,blend);controls.target.lerp(chaseAim,blend)}
+ camera.lookAt(controls.target);
+}
+function setRaceCamera(mode){
+ if(screen!=='test')return;
+ cameraMode=mode;
+ controls.enabled=mode==='overview';
+ if(mode==='overview')fitTrackCamera();
+ else {camera.fov=portraitFov();camera.updateProjectionMatrix();updateChaseCamera(true)}
+ updateCameraButtons();
+}
+function portraitFov(){return camera.aspect<.8?60:52}
+$('followCamera').onclick=()=>setRaceCamera('follow');
+$('overviewCamera').onclick=()=>setRaceCamera('overview');
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0};
  $('resultTime').textContent='--.-- s';$('delta').textContent='計測中';
  $('runLog').textContent='スタート！ パーツの組み合わせで加速・コーナー速度が変わります。';
- placeCar(0);displayRace();
+ placeCar(0);setRaceCamera('follow');displayRace();
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;
@@ -263,6 +295,6 @@ let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
  const speed=screen==='test'&&race?race.v:0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
  if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
- controls.update();renderer.render(scene,camera)}
-function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
+ if(screen==='test'&&cameraMode==='follow'){updateChaseCamera();camera.lookAt(controls.target)}else controls.update();renderer.render(scene,camera)}
+function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test'){if(cameraMode==='overview')fitTrackCamera();else {camera.fov=portraitFov();camera.updateProjectionMatrix();updateChaseCamera(true)}}}}
 new ResizeObserver(resize).observe($('scene'));window.addEventListener('resize',resize);renderUI();refreshCar();setScreen('garage');resize();requestAnimationFrame(animate);
