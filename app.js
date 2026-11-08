@@ -114,7 +114,9 @@ new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
  for(const side of specs){
   const wall=new THREE.Mesh(panelGeometry,material);
   wall.name='大会背景 '+side.label;
-  wall.position.set(side.x,55,side.z);
+  // Align the panorama panel's bottom edge to the actual venue floor.
+  // The old fixed Y=55 left the lower portion floating below the ground.
+  wall.position.set(side.x,panelHeight/2-0.03,side.z);
   wall.rotation.y=side.rotation;
   wall.renderOrder=-1;
   wall.frustumCulled=false;
@@ -218,8 +220,15 @@ function rail(radius,color){
  const barrier=new THREE.Mesh(new THREE.TubeGeometry(curve,384,.052,6,true),new THREE.MeshBasicMaterial({color}));
  barrier.receiveShadow=false;barrier.castShadow=false;trackGroup.add(barrier);
 }
-const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshBasicMaterial({color:0x14272c}));
+// User-selectable course base color (separate from the road surface and background walls).
+const GROUND_COLORS={gray:0x626b72,green:0x2d6643,khaki:0x68664a,black:0x14272c};
+const groundColorStorageKey='mini4wd_lab_ground_color';
+function readGroundColor(){try{const value=localStorage.getItem(groundColorStorageKey);return Object.hasOwn(GROUND_COLORS,value)?value:'green'}catch{return 'green'}}
+let groundColorChoice=readGroundColor();
+const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(320,320),new THREE.MeshBasicMaterial({color:GROUND_COLORS[groundColorChoice],side:THREE.DoubleSide}));
 trackGround.rotation.x=-Math.PI/2;trackGround.position.y=-.03;
+// The floor extends beyond all four venue walls to prevent an exposed void
+// when zooming or orbiting. Keep a single plane to avoid Z-fighting.
 trackGround.receiveShadow=false;trackGround.castShadow=false;trackGroup.add(trackGround);
 solidRoad(curveRadius+TRACK_HALF_WIDTH,curveRadius-TRACK_HALF_WIDTH);
 rail(curveRadius+TRACK_HALF_WIDTH,0xe76566);rail(curveRadius-TRACK_HALF_WIDTH,0xe5ebf0);
@@ -531,6 +540,43 @@ function raceStep(dt){
 }
 
 function updateBest(){const b=records[courseMode==='technical'?'technical_v042':'oval_3x_v03'];$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
+// A standalone settings layer: additional course preferences can be added here later.
+const courseSettingsOverlay=$('courseSettingsOverlay');
+const courseSettingsBtn=$('courseSettingsBtn');
+const courseSettingsDialog=courseSettingsOverlay.querySelector('.courseSettingsDialog');
+let courseSettingsPreviousFocus=null;
+function openCourseSettings(){
+ courseSettingsPreviousFocus=document.activeElement;
+ courseSettingsOverlay.classList.remove('hidden');
+ courseSettingsDialog.focus({preventScroll:true});
+}
+function closeCourseSettings(){
+ courseSettingsOverlay.classList.add('hidden');
+ if(courseSettingsPreviousFocus?.focus)courseSettingsPreviousFocus.focus({preventScroll:true});
+}
+function applyGroundColor(value,save=true){
+ if(!Object.hasOwn(GROUND_COLORS,value))return;
+ groundColorChoice=value;
+ trackGround.material.color.setHex(GROUND_COLORS[value]);
+ for(const input of document.querySelectorAll('input[name="groundColor"]'))input.checked=input.value===value;
+ if(save){try{localStorage.setItem(groundColorStorageKey,value)}catch{}}
+}
+courseSettingsBtn.addEventListener('click',openCourseSettings);
+$('courseSettingsClose').addEventListener('click',closeCourseSettings);
+$('courseSettingsDone').addEventListener('click',closeCourseSettings);
+courseSettingsOverlay.addEventListener('click',e=>{if(e.target===courseSettingsOverlay)closeCourseSettings()});
+courseSettingsOverlay.addEventListener('change',e=>{if(e.target?.name==='groundColor')applyGroundColor(e.target.value)});
+document.addEventListener('keydown',e=>{
+ if(courseSettingsOverlay.classList.contains('hidden'))return;
+ if(e.key==='Escape'){e.preventDefault();closeCourseSettings();}
+ if(e.key==='Tab'){
+  const focusables=[...courseSettingsOverlay.querySelectorAll('button,input:not([disabled])')];
+  const first=focusables[0],last=focusables.at(-1);
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+ }
+});
+applyGroundColor(groundColorChoice,false);
 $('arenaBackground').addEventListener('change',syncArenaBackdrop);
 $('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;$('stopRun').disabled=!race.loop;}});
 $('stopRun').addEventListener('click',()=>{if(!race?.active)return;const r=race;r.active=false;r.done=true;$('stopRun').disabled=true;$('stateRead').textContent='走行停止';$('delta').textContent=`任意停止：${r.laps}周完了 / 総走行 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`連続試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}`;});
@@ -540,6 +586,19 @@ function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now
  if(screen==='test'&&race?.crash?.active){updateCrashAnimation(elapsed);displayRace()}
  const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active?RACE_PLAYBACK_RATE:race?.crash?.active?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
  if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
- controls.update();renderer.render(scene,camera)}
+ controls.update();
+ // Prevent OrbitControls panning/zooming the test camera below the track floor.
+ // Moving both target and camera preserves its orbit direction (no abrupt flips).
+ if(screen==='test'){
+  const minTargetY=0.0,minCameraY=0.55;
+  if(controls.target.y<minTargetY){
+   camera.position.y+=minTargetY-controls.target.y;
+   controls.target.y=minTargetY;
+  }
+  if(camera.position.y<minCameraY){
+   camera.position.y=minCameraY;
+  }
+ }
+ renderer.render(scene,camera)}
 function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
 new ResizeObserver(resize).observe($('scene'));window.addEventListener('resize',resize);renderUI();refreshCar();setScreen('garage');resize();requestAnimationFrame(animate);
