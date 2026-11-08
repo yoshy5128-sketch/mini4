@@ -70,6 +70,17 @@ function renderFine(){const node=$('fineControls');if(!node)return;
  node.innerHTML=FINE_CONTROLS.map(c=>{const [a,b]=FINE_RANGES[c.key],v=cfg.fine[c.key],shown=c.key==='brakeHeight'?v:c.key==='damperBias'?(v===0?'中央':v<0?'後方 '+Math.abs(v):'前方 '+v):(v*c.scale>0?'+':'')+(v*c.scale)+c.unit;return `<label class="fineRow"><span><strong>${c.label}</strong><small>${c.desc}</small></span><div class="fineAdjust"><button data-fine="${c.key}" data-step="-1" ${v<=a?'disabled':''} aria-label="${c.label}を下げる">−</button><output>${shown}</output><button data-fine="${c.key}" data-step="1" ${v>=b?'disabled':''} aria-label="${c.label}を上げる">＋</button></div></label>`}).join('');}
 $('fineControls').addEventListener('click',e=>{const b=e.target.closest('[data-fine]');if(!b)return;const k=b.dataset.fine,step=Number(b.dataset.step),[min,max]=FINE_RANGES[k];cfg.fine[k]=Math.max(min,Math.min(max,cfg.fine[k]+step));refreshCar()});
 $('resetFine').onclick=()=>{cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2};refreshCar()};
+// Reset every tuning parameter in one operation, without changing TYPE S/P/B.
+$('normalSet').onclick=()=>{
+ cfg.parts={...defaults};
+ cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2};
+ activeGroup='motor';
+ refreshCar(); // Persists the full setting, updates stats and rebuilds the 3D machine.
+ const button=$('normalSet');
+ button.textContent='✓ NormalSET';
+ window.setTimeout(()=>{button.textContent='NormalSET'},950);
+};
+
 $('machines').addEventListener('click',e=>{let b=e.target.closest('[data-type]');if(b){cfg.type=Number(b.dataset.type);refreshCar()}});
 $('partTabs').addEventListener('click',e=>{let b=e.target.closest('[data-group]');if(b){activeGroup=b.dataset.group;renderUI()}});
 $('parts').addEventListener('click',e=>{let b=e.target.closest('[data-part]');if(b){cfg.parts[activeGroup]=Number(b.dataset.part);refreshCar()}});
