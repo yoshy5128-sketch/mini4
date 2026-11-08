@@ -118,21 +118,27 @@ function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[c
  if(cfg.type===2){box(group,.5,.055,.65,accent,-.53,.46,0);box(group,.28,.045,.66,body,.55,.40,0);}
  // Metallic motor and battery detail visible on chassis edges
  box(group,.37,.16,.23,metal,-.39,.16,0);for(const z of [-.21,.21])box(group,.42,.11,.10,gold,.1,.20,z);
- // Carbon stays front and rear - symmetrical to keep both roller sets perfectly centered.
- const rollerMounts=[{x:-.78,label:'rear'},{x:.78,label:'front'}];
- for(const mount of rollerMounts){
-  const x=mount.x+Math.sign(mount.x)*cfg.fine.rollerSpread*.055;
+ // Front and rear roller units share a single centerline (local Z = 0).
+ // Both plates are built from the same component, and all bolts/rollers are
+ // attached to the plate's center rather than to independent world offsets.
+ for(const side of [-1,1]){
+  const x=side*(.78+cfg.fine.rollerSpread*.055);
   const h=cfg.fine.rollerHeight*.024;
-  box(group,.15,.045,1.10,carbon,x,.22+h,0);
+  const mount=new THREE.Group();
+  mount.position.set(x,0,0);group.add(mount);
+  // Reinforce the rear stay with a short central brace; no off-axis parts.
+  if(side<0) box(mount,.31,.035,.16,carbon,.13,.205+h,0);
+  box(mount,.15,.045,1.10,carbon,0,.22+h,0);
   for(const z of [-.52,.52]){
-   cyl(group,.021,.021,.13,metal,x,.29+h,z);
+   cyl(mount,.021,.021,.13,metal,0,.29+h,z);
    const rad=r.diam/13*.078;
-   cyl(group,rad,rad,.065,r.friction<.7?gold:silver,x,.335+h,z);
-   cyl(group,rad*.61,rad*.61,.07,black,x,.37+h,z);
-   tor(group,rad*.7,.008,metal,x,.379+h,z,Math.PI/2);
-  }
-  if(mount.label==='rear'){
-    for(const z of [-.52,.52]){box(group,.042,.17,.055,metal,x-.01,.38,z);cyl(group,.036,.036,.032,silver,x-.01,.46,z)}
+   cyl(mount,rad,rad,.065,r.friction<.7?gold:silver,0,.335+h,z);
+   cyl(mount,rad*.61,rad*.61,.07,black,0,.37+h,z);
+   tor(mount,rad*.7,.008,metal,0,.379+h,z,Math.PI/2);
+   if(side<0){
+    box(mount,.042,.17,.055,metal,0,.38+h,z);
+    cyl(mount,.036,.036,.032,silver,0,.46+h,z);
+   }
   }
  }
  if(d.mass){const n=d.mass>=12?4:2;for(let i=0;i<n;i++){const xx=(n===2?(cfg.parts.damper===2?-.56:.52):i<2?.52:-.56)+cfg.fine.damperBias*.10;const zz=i%2?-.29:.29;box(group,.09,.1,.11,gold,xx,.20,zz);cyl(group,.021,.021,.06,metal,xx,.28,zz)}}
@@ -211,35 +217,34 @@ function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p
 function startCrashAnimation(){
  const r=race;if(!r)return;
  const pos=carContainer.position.clone();
- const rot=carContainer.rotation.clone();
- const current=oval(Math.min(.9999,r.distance/ovalLength));
- const tangent=new THREE.Vector3(Math.cos(current.ang),0,-Math.sin(current.ang)).normalize();
- const radial=new THREE.Vector3(current.x,0,current.z).normalize();
- const launch=tangent.multiplyScalar(Math.max(4.8,r.v*1.1)).add(radial.multiplyScalar(1.6));
- r.crash={active:true,t:0,duration:1.35,start:pos,rotation:rot,velocity:launch,spin:new THREE.Vector3(6.5+(r.v*0.6),4.4+r.risk*10,7.4),settled:false};
+ const u=Math.min(.9999,r.distance/ovalLength);
+ const p0=oval(u),p1=oval((r.distance+.075)/ovalLength);
+ // Tangent from actual consecutive center-line points, never from the old
+ // inverted Z-angle expression that sent cars backwards on the curves.
+ const forward=new THREE.Vector3(p1.x-p0.x,0,p1.z-p0.z).normalize();
+ // An anticlockwise oval turns left; the RIGHT side is the outside wall.
+ const outward=new THREE.Vector3(forward.z,0,-forward.x);
+ // Keep forward velocity dominant. Only a small outward component is added.
+ const velocity=forward.clone().multiplyScalar(Math.max(5.5,r.v*.78))
+     .addScaledVector(outward,Math.max(1.2,r.v*.23));
+ const orientation=carContainer.quaternion.clone();
+ r.crash={active:true,t:0,duration:.95,start:pos,velocity,
+   orientation,forward,spinAxis:new THREE.Vector3(0,0,1),settled:false};
 }
 function updateCrashAnimation(dt){
  const c=race?.crash;if(!c?.active)return;
  c.t=Math.min(c.duration,c.t+dt);
  const u=c.t/c.duration;
- const gravity=9.8;
- const x=c.velocity.x*c.t;
- const z=c.velocity.z*c.t;
- const y=Math.max(0,c.velocity.length()*0.055*c.t + 1.1*c.t - 0.5*gravity*c.t*c.t);
- carContainer.position.set(c.start.x+x,TRACK_CAR_Y+y,c.start.z+z);
- const ease=1-Math.pow(1-u,2);
- carContainer.rotation.set(
-   c.rotation.x + c.spin.x*ease,
-   c.rotation.y + c.spin.y*ease,
-   c.rotation.z + c.spin.z*ease
- );
- if(u>=1&&!c.settled){
-   c.settled=true;
-   c.active=false;
-   carContainer.position.y=TRACK_CAR_Y;
-   carContainer.rotation.x=THREE.MathUtils.degToRad(78);
-   carContainer.rotation.z=THREE.MathUtils.degToRad(52);
- }
+ // Coasts in the original direction while peeling outward; never reverses.
+ const travel=c.t*(1-.17*u);
+ const bounce=Math.max(0,1-u)*Math.abs(Math.sin(u*Math.PI*1.75))*.64;
+ carContainer.position.copy(c.start).addScaledVector(c.velocity,travel);
+ carContainer.position.y=TRACK_CAR_Y+bounce;
+ // One forward pitch/half-tumble, with no 180-degree turn about the heading.
+ const pitch=Math.PI*.82*(u*u*(3-2*u));
+ const roll=new THREE.Quaternion().setFromAxisAngle(c.spinAxis,pitch);
+ carContainer.quaternion.copy(c.orientation).multiply(roll);
+ if(u>=1){c.settled=true;c.active=false;carContainer.position.y=TRACK_CAR_Y;}
 }
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?'コースアウト演出':r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
@@ -247,7 +252,7 @@ function startRace(){
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0};
  $('resultTime').textContent='--.-- s';$('delta').textContent='計測中';
  $('runLog').textContent='スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
- placeCar(0);displayRace();
+ placeCar(0);accum=0;displayRace();
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;
@@ -314,7 +319,7 @@ $('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStor
 let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed*RACE_PLAYBACK_RATE;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
  if(screen==='test'&&race?.crash?.active){updateCrashAnimation(elapsed);displayRace()}
- const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active?RACE_PLAYBACK_RATE:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
+ const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active?RACE_PLAYBACK_RATE:race?.crash?.active?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
  if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
  controls.update();renderer.render(scene,camera)}
 function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
