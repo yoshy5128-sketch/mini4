@@ -23,19 +23,32 @@ const GROUPS=[
   {name:'ブレーキなし',mass:0,drag:0},{name:'薄型フロント',mass:2,drag:.005},{name:'薄型リア',mass:2,drag:.004},{name:'前後セッティング',mass:5,drag:.009},{name:'強力ブレーキ',mass:8,drag:.018}]}
 ];
 const defaults={motor:0,gear:2,tire:2,roller:0,damper:0,brake:0};
-const settingsKey='mini4wd_lab_v01_settings';const recordsKey='mini4wd_lab_v01_records';
+const settingsKey='mini4wd_lab_v01_settings';const recordsKey='mini4wd_lab_v02_records'; // Physics changed: keep setups, separate incompatible time records.
 function getStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
 let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
 if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
 cfg.parts={...defaults,...cfg.parts};for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
 let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
 const choose=k=>GROUPS.find(x=>x.key===k).parts[cfg.parts[k]];
-function physics(){const t=TYPES[cfg.type],m=choose('motor'),g=choose('gear'),ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake');const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass;
-const ratio=g.ratio, wheel=ti.diam/26, maxSpeed=5.9*m.rpm*wheel*(4/ratio)*(1/t.drag)*(1-0.004*b.drag), acceleration=2.3*m.torque*t.torque*(ratio/4)/wheel*(124/mass), grip=ti.grip*t.grip, stability=t.stability*r.stability*(1+d.stability)*(124/mass)**.13;
-const cornerLimit=3.7*Math.sqrt(Math.max(.3,grip*stability))* (1+.045*(r.diam-13)/6);
-const friction=.16*r.friction +b.drag*3, coastDrag=.010*t.drag;
-return {mass, maxSpeed, acceleration, grip,stability,cornerLimit,friction,coastDrag,landing:(.5+d.landing)*stability};}
-function score(p){return {speed:Math.round(Math.min(100,p.maxSpeed/10.4*100)),accel:Math.round(Math.min(100,p.acceleration/4.6*100)),corner:Math.round(Math.min(100,p.cornerLimit/6.6*100)),stability:Math.round(Math.min(100,(p.stability*.9+p.landing*.1)/1.7*100))}}
+// v0.2: model-scale metres and seconds; tuned for Mini 4WD-like 30–60 km/h.
+// The motor/gear/tyre characteristics contribute continuously rather than
+// changing animation playback speed. These are fictional calibration values.
+function physics(){
+ const t=TYPES[cfg.type],m=choose('motor'),g=choose('gear'),ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake');
+ const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass;
+ const wheel=ti.diam/26, ratio=g.ratio;
+ const maxSpeed=12.3*m.rpm*wheel*(4/ratio)/Math.sqrt(t.drag);
+ const acceleration=11.5*m.torque*t.torque*(ratio/4)/wheel*(124/mass);
+ const grip=ti.grip*t.grip;
+ const stability=t.stability*r.stability*(1+d.stability)*Math.pow(124/mass,.15);
+ // A higher supported lateral load permits faster turns, but weighs more.
+ const cornerLimit=9.2*Math.sqrt(Math.max(.35,grip*stability))*(1+.025*(r.diam-13)/6);
+ const cornerFriction=.36*r.friction+Math.max(0,b.drag)*2.5;
+ const brakePower=9+4*Math.max(0,grip-1)+3*Math.max(0,stability-1);
+ return {mass,maxSpeed,acceleration,grip,stability,cornerLimit,cornerFriction,brakePower,
+  rollingLoss:.14+.09*r.friction,airDrag:.0045*t.drag,landing:(.5+d.landing)*stability};
+}
+function score(p){return {speed:Math.round(Math.min(100,p.maxSpeed/18.8*100)),accel:Math.round(Math.min(100,p.acceleration/21*100)),corner:Math.round(Math.min(100,p.cornerLimit/15*100)),stability:Math.round(Math.min(100,(p.stability*.9+p.landing*.1)/1.7*100))}}
 function persist(){localStorage.setItem(settingsKey,JSON.stringify(cfg))}
 function renderUI(){ $('machines').innerHTML=TYPES.map((t,i)=>`<button class="pick ${cfg.type===i?'active':''}" data-type="${i}">${t.label}<small>${t.short}</small></button>`).join('');
  $('partTabs').innerHTML=GROUPS.map(g=>`<button class="partTab ${g.key===activeGroup?'active':''}" data-group="${g.key}">${g.label}</button>`).join('');
@@ -173,26 +186,71 @@ else{camera.fov=38;controls.target.set(0,.28,0);camera.position.copy(({front:[3.
 function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
-function startRace(){const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,logs:[],risk:0};$('resultTime').textContent='--.-- s';$('delta').textContent='計測中';$('runLog').textContent='スタート！ セッティングの違いを検証しましょう。';placeCar(0);displayRace()}
-function stopRace(failed){const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;const key='oval';const before=records[key]?.time;
- if(failed){$('resultTime').textContent='COURSE OUT';$('delta').textContent='コーナーの速度が高すぎます';$('runLog').textContent='コーナーでコースアウト。ローラーの安定性、タイヤのグリップ、最高速のバランスを見直してください。';}
- else {const t=r.time;$('resultTime').textContent=t.toFixed(2)+' s';const better=before==null||t<before;$('delta').textContent=before==null?'初回計測完了':`${t<before?'ベスト更新：':'ベストとの差：'}${Math.abs(t-before).toFixed(2)} 秒${t<before?' 短縮':' 遅い'}`;
- $('runLog').textContent=`完走！最高速 ${(r.maxV*3.6).toFixed(1)} km/h / 総重量 ${r.p.mass}g。${better?'新しいベストです。':'別のパーツも試してみましょう。'}`;
- if(better){records[key]={time:t,max:r.maxV*3.6,type:TYPES[cfg.type].label,parts:{...cfg.parts}};localStorage.setItem(recordsKey,JSON.stringify(records))}}
- updateBest();displayRace();}
-function raceStep(dt){if(!race?.active)return;const r=race,p=r.p;let pos=oval(r.distance/ovalLength);const onCurve=pos.curved;const sector=((r.distance%ovalLength)+ovalLength)%ovalLength;
- const straightLength=2*straightHalf, arcLength=Math.PI*curveRadius;
- const distanceToCorner=sector<straightLength?straightLength-sector:sector<straightLength+arcLength?0:sector<straightLength*2+arcLength?straightLength*2+arcLength-sector:0;
- const approaching=!onCurve&&distanceToCorner<2.6;
- const baseLim=onCurve||approaching?p.cornerLimit*1.10:999;
- const motorAccel=p.acceleration*(Math.max(0.1,1-r.v/(p.maxSpeed*1.15)));
- let a=motorAccel*(1-(r.v/p.maxSpeed)**1.9)-p.coastDrag*r.v*r.v;
- if((onCurve||approaching) && r.v>baseLim*.88)a-=Math.max(0,r.v-baseLim*.88)*5.4+p.friction*.5;
- r.v=Math.max(0,Math.min(p.maxSpeed*1.02,r.v+a*dt));r.distance+=r.v*dt;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
- // Deterministic safety margin, with a brief grace period for slight over-speed.
- if(onCurve){const margin=r.v/(p.cornerLimit*1.30);if(margin>1)r.risk+=dt*(margin-1)*2.4;else r.risk=Math.max(0,r.risk-dt*.9)}else r.risk=Math.max(0,r.risk-dt*2);
- if(r.risk>.30){stopRace(true);return}
- if(r.distance>=ovalLength){r.distance=ovalLength;placeCar(1);stopRace(false);return}placeCar(r.distance/ovalLength);
+function startRace(){
+ const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,
+   peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0};
+ $('resultTime').textContent='--.-- s';$('delta').textContent='計測中';
+ $('runLog').textContent='スタート！ パーツの組み合わせで加速・コーナー速度が変わります。';
+ placeCar(0);displayRace();
+}
+function stopRace(failed){
+ const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;
+ const key='oval';const before=records[key]?.time;
+ const report=`最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
+ if(failed){
+  $('resultTime').textContent='COURSE OUT';$('delta').textContent='コーナー速度がローラー・グリップの許容範囲を超過';
+  $('runLog').textContent=`コースアウト：${(r.distance/ovalLength*100).toFixed(0)}%地点。${report} ローラーやタイヤ、ダンパーを見直すか、最高速を抑えてください。`;
+ }else{
+  const t=r.time;$('resultTime').textContent=t.toFixed(2)+' s';const better=before==null||t<before;
+  $('delta').textContent=before==null?'初回計測完了':`${t<before?'ベスト更新：':'ベストとの差：'}${Math.abs(t-before).toFixed(2)} 秒${t<before?' 短縮':' 遅い'}`;
+  $('runLog').textContent=`完走！ ${report}${better?' 新しいベストです。':' 改造してもう一度比べてみましょう。'}`;
+  if(better){records[key]={time:t,max:r.maxV*3.6,type:TYPES[cfg.type].label,parts:{...cfg.parts}};localStorage.setItem(recordsKey,JSON.stringify(records))}
+ }
+ updateBest();displayRace();
+}
+// Simulate the distance remaining until the *next* corner. A turn needs a
+// finite braking distance: strong motors without enough stability can go out.
+function raceStep(dt){
+ if(!race?.active)return;
+ const r=race,p=r.p,sector=((r.distance%ovalLength)+ovalLength)%ovalLength;
+ const straight=2*straightHalf,arc=Math.PI*curveRadius;
+ const onCurve=sector>=straight&&sector<straight+arc||sector>=2*straight+arc;
+ const toCorner=sector<straight?straight-sector:sector<straight+arc?0:sector<2*straight+arc?2*straight+arc-sector:0;
+ const limit=p.cornerLimit;
+ // Grip and rollers make corner speed costly even below the derailment limit.
+ // No hard speed clamp: physical deceleration produces a real trade-off.
+ let forwardAccel=p.acceleration*Math.max(0,1-r.v/Math.max(1,p.maxSpeed));
+ forwardAccel-=p.rollingLoss+p.airDrag*r.v*r.v;
+ if(onCurve){forwardAccel-=p.cornerFriction*(r.v/Math.max(1,limit));r.curveTime+=dt;}
+ // Brake just enough before entering corners; max braking is finite.
+ if(!onCurve&&toCorner<8.0){
+  const target=Math.max(.1,limit*.94);
+  const stoppingDistance=Math.max(0,(r.v*r.v-target*target)/(2*p.brakePower));
+  if(stoppingDistance+0.23>=toCorner&&r.v>target){
+    const prior=forwardAccel;
+    forwardAccel=-p.brakePower;
+    r.cornerLoss+=Math.max(0,prior-forwardAccel)*dt*3.6;
+  }
+ }
+ if(onCurve&&r.v>limit*.94){
+  // The rollers scrub the side walls instead of imposing instant slowdown.
+  const prior=forwardAccel;
+  forwardAccel-=Math.min(5.0,(r.v-limit*.94)*3+p.cornerFriction);
+  r.cornerLoss+=Math.max(0,prior-forwardAccel)*dt*3.6;
+ }
+ r.v=Math.max(0,Math.min(p.maxSpeed,r.v+forwardAccel*dt));
+ const advance=r.v*dt;
+ r.distance+=advance;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
+ // Ratio is tied to lateral acceleration (v²/R) vs. supported load.
+ if(onCurve){
+  const overload=r.v/Math.max(.1,limit);
+  r.peakLateral=Math.max(r.peakLateral,overload);
+  if(overload>1.045)r.risk+=dt*(overload-1.045)*5;
+  else r.risk=Math.max(0,r.risk-dt*.65);
+ }else r.risk=Math.max(0,r.risk-dt*1.5);
+ if(r.risk>.18){placeCar(Math.min(.9999,r.distance/ovalLength));stopRace(true);return}
+ if(r.distance>=ovalLength){r.distance=ovalLength;placeCar(1);stopRace(false);return}
+ placeCar(r.distance/ovalLength);
 }
 function updateBest(){const b=records.oval;$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}`:'まだ記録がありません'}
 $('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
