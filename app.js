@@ -34,7 +34,7 @@ const TRACK_SCALE=3;
 // v0.2.4: run the *whole vehicle simulation* faster in wall-clock time.
 // The car covers the course faster on screen; camera stays in free overview.
 // Model-time telemetry and tuning comparisons remain calibrated as before.
-const RACE_PLAYBACK_RATE=2.2;
+const RACE_PLAYBACK_RATE=4.0;
 // v0.2: model-scale metres and seconds; tuned for Mini 4WD-like 30–60 km/h.
 // The motor/gear/tyre characteristics contribute continuously rather than
 // changing animation playback speed. These are fictional calibration values.
@@ -199,7 +199,7 @@ function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0};
  $('resultTime').textContent='--.-- s';$('delta').textContent='計測中';
- $('runLog').textContent='スタート！ マシンの走行テンポを2.2倍に変更。計測値はチューニング比較用のシミュレーション時間です。';
+ $('runLog').textContent='スタート！ マシンの走行テンポを4倍に変更。計測値はチューニング比較用のシミュレーション時間です。';
  placeCar(0);displayRace();
 }
 function stopRace(failed){
