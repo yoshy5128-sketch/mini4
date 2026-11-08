@@ -214,26 +214,30 @@ function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
 function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
-// Course-out presentation: preserve heading and slide off the outer edge.
-// No collision impact, jumping, tumbling, or artificial reversal.
+// Preserve the v0.3.6 run-off exactly, then add an optional randomized tumble.
+// Phase 1: fast, forward and outward drift with NO rotation.
+// Phase 2: after fully leaving the course, slide, roll or flip at random.
 function startCrashAnimation(){
  const r=race;if(!r)return;
  const pos=carContainer.position.clone();
  const p0=oval(Math.min(.9999,r.distance/ovalLength));
  const p1=oval((r.distance+.08)/ovalLength);
  const forward=new THREE.Vector3(p1.x-p0.x,0,p1.z-p0.z).normalize();
- // The track proceeds counterclockwise: the right-hand side is the outside.
  const outward=new THREE.Vector3(forward.z,0,-forward.x);
  const speed=Math.max(8,r.v);
- r.crash={active:true,t:0,duration:1.05,start:pos,
-   forward,outward,speed,orientation:carContainer.quaternion.clone()};
+ const variants=['slide','roll','flip','spin'];
+ const variant=variants[Math.floor(Math.random()*variants.length)];
+ const direction=Math.random()<.5?-1:1;
+ const revolutions=variant==='slide'?0:variant==='roll'?1+Math.floor(Math.random()*2):variant==='flip'?1:2+Math.floor(Math.random()*2);
+ r.crash={active:true,t:0,exitDuration:1.05,fallDuration:variant==='slide'?.65:1.05,
+  start:pos,forward,outward,speed,orientation:carContainer.quaternion.clone(),
+  variant,direction,revolutions};
 }
 function updateCrashAnimation(dt){
  const c=race?.crash;if(!c?.active)return;
- c.t=Math.min(c.duration,c.t+dt);
- // Continue ahead with momentum while drifting progressively off the circuit.
- // This is a visual-only movement; race physics and reported time stay intact.
- const t=c.t;
+ c.t=Math.min(c.exitDuration+c.fallDuration,c.t+dt);
+ // This is intentionally unchanged from v0.3.6, with no spin until the exit ends.
+ const t=Math.min(c.t,c.exitDuration);
  const forwardDistance=c.speed*1.18*t;
  const outwardDistance=c.speed*(.32*t+.16*t*t);
  carContainer.position.copy(c.start)
@@ -241,7 +245,28 @@ function updateCrashAnimation(dt){
    .addScaledVector(c.outward,outwardDistance);
  carContainer.position.y=TRACK_CAR_Y;
  carContainer.quaternion.copy(c.orientation);
- if(t>=c.duration)c.active=false;
+ if(c.t>c.exitDuration){
+  const e=c.t-c.exitDuration;
+  const u=Math.min(1,e/c.fallDuration);
+  const travel=(1-Math.pow(1-u,2));
+  // Inertia fades after departure, but the car never snaps backwards.
+  carContainer.position.addScaledVector(c.forward,c.speed*.36*c.fallDuration*travel);
+  carContainer.position.addScaledVector(c.outward,c.speed*.13*c.fallDuration*travel);
+  if(c.variant==='slide'){
+   carContainer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),c.direction*u*.35));
+  }else{
+   // The vehicle keeps its initial heading until its wheels have left the track.
+   // These are world-space rotations; no forced reversal during flight.
+   const axis=c.variant==='roll'?c.forward:
+     c.variant==='flip'?c.outward:new THREE.Vector3(.35,c.direction*.6,.72).normalize();
+   const spin=2*Math.PI*c.revolutions*(1-Math.pow(1-u,1.2));
+   carContainer.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,c.direction*spin));
+   // A short bounce only after the departure. Keep the car above the flat ground.
+   const bounce=Math.abs(Math.sin(Math.PI*u))*(c.variant==='flip'?.53:.36);
+   carContainer.position.y=TRACK_CAR_Y+bounce+(c.variant==='flip'?.11:.07)*u;
+  }
+ }
+ if(c.t>=c.exitDuration+c.fallDuration)c.active=false;
 }
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?'コースアウト演出':r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
