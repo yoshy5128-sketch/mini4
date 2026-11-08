@@ -1,0 +1,66 @@
+/* MINI 4WD LAB: increment APP_VERSION in every subsequent release. */
+const APP_VERSION = '0.5.1';
+const CACHE_PREFIX = 'mini4wd-lab-';
+const APP_CACHE = CACHE_PREFIX + APP_VERSION;
+const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './arena_background.jpg', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(APP_CACHE);
+    await cache.addAll(SHELL);
+    await self.skipWaiting();
+  })());
+});
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== APP_CACHE).map(key => caches.delete(key)));
+    await self.clients.claim();
+    const clients = await self.clients.matchAll({type:'window'});
+    for (const client of clients) client.postMessage({type:'VERSION_READY',version:APP_VERSION});
+  })());
+});
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) {
+    // Three.js ESM files from the existing jsDelivr import map. Cache after a
+    // successful online fetch; offline works after these modules are loaded.
+    if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('/three@0.170.0/')) {
+      event.respondWith((async () => {
+        const cache = await caches.open(APP_CACHE);
+        const saved = await cache.match(req);
+        if (saved) return saved;
+        const response = await fetch(req);
+        if (response.ok || response.type === 'opaque') await cache.put(req, response.clone());
+        return response;
+      })());
+    }
+    return;
+  }
+  if (req.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const res = await fetch(req, {cache:'no-store'});
+        if (res.ok) (await caches.open(APP_CACHE)).put('./index.html',res.clone());
+        return res;
+      } catch (_) {
+        return (await caches.match('./index.html')) || Response.error();
+      }
+    })());
+    return;
+  }
+  event.respondWith((async () => {
+    const cache = await caches.open(APP_CACHE);
+    const hit = await cache.match(req,{ignoreSearch:true});
+    if (hit) return hit;
+    try {
+      const res = await fetch(req);
+      if (res.ok) await cache.put(req,res.clone());
+      return res;
+    } catch (_) { return Response.error(); }
+  })());
+});

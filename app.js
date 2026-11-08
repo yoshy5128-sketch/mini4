@@ -10,7 +10,9 @@ const TYPES=[
 // Values are game design parameters, not measurements of real commercial parts.
 const GROUPS=[
  {key:'motor',label:'モーター',info:'最高回転数とトルクの兼ね合いが重要。高出力は速い一方で重くなります。',parts:[
-  {name:'標準モーター',rpm:1,torque:1,mass:0},{name:'トルク型',rpm:.92,torque:1.27,mass:3},{name:'高回転型',rpm:1.25,torque:.84,mass:3},{name:'バランス改良型',rpm:1.13,torque:1.13,mass:4},{name:'ハイパワー型',rpm:1.34,torque:1.22,mass:9}]},
+  {name:'標準モーター',rpm:1,torque:1,mass:0,heat:0.85,durability:1.12},{name:'トルク型',rpm:.92,torque:1.27,mass:3,heat:1.05,durability:1.02},{name:'高回転型',rpm:1.25,torque:.84,mass:3,heat:1.3,durability:0.87},{name:'バランス改良型',rpm:1.13,torque:1.13,mass:4,heat:1.1,durability:1.05},{name:'ハイパワー型',rpm:1.34,torque:1.22,mass:9,heat:1.65,durability:0.66}]},
+ {key:'battery',label:'電池',info:'高出力は初速に強い一方、電圧低下と容量に弱い。容量型は長距離に有利。',parts:[
+  {name:'高出力型',mass:4,voltage:1.16,capacity:.72,sag:1.38,desc:'瞬発力重視'},{name:'バランス型',mass:0,voltage:1,capacity:1,sag:1,desc:'基準性能'},{name:'大容量型',mass:9,voltage:.95,capacity:1.58,sag:.70,desc:'持久力重視'}]},
  {key:'gear',label:'ギヤ',info:'数値の小さいギヤ比は最高速寄り、大きいギヤ比は加速力寄りになります。',parts:[
   {name:'3.5:1 超速',ratio:3.5,mass:1},{name:'3.7:1 高速',ratio:3.7,mass:1},{name:'4.0:1 標準',ratio:4,mass:0},{name:'4.2:1 加速',ratio:4.2,mass:0},{name:'5.0:1 登坂',ratio:5,mass:2}]},
  {key:'tire',label:'タイヤ',info:'小径は加速・安定寄り。大径は速度寄り。柔らかいタイヤはグリップが強めです。',parts:[
@@ -22,12 +24,12 @@ const GROUPS=[
  {key:'brake',label:'ブレーキ',info:'ブレーキは立体コース向け。今回の平面オーバルでは重さとわずかな接触抵抗だけが影響します。',parts:[
   {name:'ブレーキなし',mass:0,drag:0},{name:'薄型フロント',mass:2,drag:.005},{name:'薄型リア',mass:2,drag:.004},{name:'前後セッティング',mass:5,drag:.009},{name:'強力ブレーキ',mass:8,drag:.018}]}
 ];
-const defaults={motor:0,gear:2,tire:2,roller:0,damper:0,brake:0};
+const defaults={motor:0,battery:1,gear:2,tire:2,roller:0,damper:0,brake:0};
 const settingsKey='mini4wd_lab_v01_settings';const recordsKey='mini4wd_lab_v02_records'; // Physics changed: keep setups, separate incompatible time records.
 function getStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
 let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
 if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
-cfg.parts={...defaults,...cfg.parts};cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,...cfg.fine};const FINE_RANGES={rollerHeight:[-2,2],rollerSpread:[-2,2],damperBias:[-2,2],brakeHeight:[0,4]};for(const [k,[lo,hi]] of Object.entries(FINE_RANGES))cfg.fine[k]=Math.max(lo,Math.min(hi,Math.round(Number(cfg.fine[k])||0))); for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
+cfg.parts={...defaults,...cfg.parts};cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,motorTune:0,...cfg.fine};const FINE_RANGES={rollerHeight:[-2,2],rollerSpread:[-2,2],damperBias:[-2,2],brakeHeight:[0,4],motorTune:[-2,2]};for(const [k,[lo,hi]] of Object.entries(FINE_RANGES))cfg.fine[k]=Math.max(lo,Math.min(hi,Math.round(Number(cfg.fine[k])||0))); for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
 let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let courseMode='oval';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
 const choose=k=>GROUPS.find(x=>x.key===k).parts[cfg.parts[k]];
 const TRACK_SCALE=3;
@@ -40,10 +42,11 @@ const RACE_PLAYBACK_RATE=4.0;
 // changing animation playback speed. These are fictional calibration values.
 function physics(){
  const t=TYPES[cfg.type],m=choose('motor'),g=choose('gear'),ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake');
- const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass;const fine=cfg.fine;
+ const batteryPart=choose('battery');const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass+batteryPart.mass;const fine=cfg.fine;
  const wheel=ti.diam/26, ratio=g.ratio;
- const maxSpeed=12.3*m.rpm*wheel*(4/ratio)/Math.sqrt(t.drag);
- const acceleration=11.5*m.torque*t.torque*(ratio/4)/wheel*(124/mass);
+ const tune=1+fine.motorTune*.032;
+ const maxSpeed=12.3*m.rpm*tune*batteryPart.voltage*wheel*(4/ratio)/Math.sqrt(t.drag);
+ const acceleration=11.5*m.torque*t.torque*tune*batteryPart.voltage*(ratio/4)/wheel*(124/mass);
  const grip=ti.grip*t.grip;
  const stability=t.stability*r.stability*(1+d.stability)*Math.pow(124/mass,.15)*(1+fine.rollerSpread*.036-fine.rollerHeight*.032+(d.mass?(.018*Math.abs(fine.damperBias))*(-1):0));
  // A higher supported lateral load permits faster turns, but weighs more.
@@ -54,26 +57,59 @@ function physics(){
   rollingLoss:.14+.09*r.friction+(b.mass?(4-fine.brakeHeight)*.035:0),airDrag:.0045*t.drag,landing:(.5+d.landing)*stability*(1+(d.mass?fine.damperBias*.045:0)),fine:{...fine}};
 }
 function score(p){return {speed:Math.round(Math.min(100,p.maxSpeed/18.8*100)),accel:Math.round(Math.min(100,p.acceleration/21*100)),corner:Math.round(Math.min(100,p.cornerLimit/15*100)),stability:Math.round(Math.min(100,(p.stability*.9+p.landing*.1)/1.7*100))}}
+function miniLineSVG(series,{min=0,max=100,width=320,height=150,xlabels=true}={}){
+ const left=31,right=9,top=12,bottom=xlabels?23:9,W=width-left-right,H=height-top-bottom;
+ const maxLength=Math.max(2,...series.map(a=>a.points.length));
+ const xs=i=>left+i*W/(maxLength-1),ys=v=>top+H*(1-(Math.max(min,Math.min(max,v))-min)/(max-min));
+ const grid=[0,.25,.5,.75,1].map(t=>`<line x1="${left}" y1="${top+t*H}" x2="${width-right}" y2="${top+t*H}" stroke="#385064" stroke-width=".7"/><text x="${left-4}" y="${top+t*H+3}" text-anchor="end" font-size="9" fill="#9cb9cd">${(max-t*(max-min)).toFixed(0)}</text>`).join('');
+ const plots=series.map(a=>`<polyline fill="none" stroke="${a.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="${a.points.map((v,i)=>`${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ')}"/>`).join('');
+ return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="性能変化グラフ" preserveAspectRatio="none">${grid}${plots}${xlabels?`<text x="${width/2}" y="${height-3}" font-size="9" text-anchor="middle" fill="#b6cbd8">経過 / 周回 →</text>`:''}</svg>`;
+}
+function renderTuningCharts(){
+ const target=$('tuningCharts');if(!target)return;
+ const m=choose('motor'),bat=choose('battery'),p=physics(),scores=score(p);
+ // Predicted curves are approximate relative indicators, not measured field data.
+ const consumption=(a,b)=>Array.from({length:13},(_,i)=>Math.max(0,100-i*7.1*a/b));
+ const performance=[['最高速',scores.speed],['加速',scores.accel],['コーナー',scores.corner],['安定性',scores.stability],['耐久',Math.round(Math.min(100,75*m.durability*bat.capacity/Math.max(.7,m.heat)))]];
+ const perfHTML=performance.map(([label,n])=>`<div class="compareRow"><span>${label}</span><div class="compareTrack"><div style="width:${n}%"></div></div><b>${n}</b></div>`).join('');
+ const batteries=[{name:'高出力',c:'#f2a768',v:GROUPS.find(g=>g.key==='battery').parts[0]},{name:'バランス',c:'#58d6fa',v:GROUPS.find(g=>g.key==='battery').parts[1]},{name:'大容量',c:'#74dfab',v:GROUPS.find(g=>g.key==='battery').parts[2]}];
+ const curves=batteries.map(v=>({color:v.c,points:consumption(v.v.sag*m.heat,v.v.capacity)}));
+ const heatCurve=Array.from({length:13},(_,i)=>Math.min(125,25+80*(1-Math.exp(-i*.19*m.heat*(1+cfg.fine.motorTune*.13)))));
+ target.innerHTML=`<div class="chartTitle">マシン総合性能（相対値）</div>${perfHTML}<div class="chartTitle">電池3タイプの残量予測 <small>同一負荷での比較</small></div>${miniLineSVG(curves)}<div class="chartLegend">${batteries.map(v=>`<span style="color:${v.c}">● ${v.name}</span>`).join('')}</div><div class="chartTitle">選択モーターの温度予測</div>${miniLineSVG([{color:'#f5a46a',points:heatCurve}],{max:125})}<div class="chartNote">${m.name} / 発熱係数 ${m.heat.toFixed(2)} / 耐久係数 ${m.durability.toFixed(2)}。予測は比較用のモデルです。</div>`;
+}
+function snapshotLap(r,lapTime){
+ r.telemetry.push({lap:r.laps,time:lapTime,battery:r.battery,tire:r.tire,temp:r.motorTemp,health:r.motorHealth});
+ if(r.telemetry.length>150)r.telemetry.shift();
+ renderLapAnalysis(r);
+}
+function renderLapAnalysis(r=race){
+ const target=$('lapAnalysis');if(!target)return;
+ if(!r?.telemetry?.length){target.innerHTML='<div class="chartNote">周回を完了すると、タイム・電池・タイヤ・モーターの推移が表示されます。</div>';return;}
+ const rows=r.telemetry;
+ const timingMax=Math.max(5,...rows.map(v=>v.time))*1.12;
+ target.innerHTML=`<div class="chartTitle">周回タイム（秒）</div>${miniLineSVG([{color:'#5bd8ff',points:rows.map(v=>v.time)}],{max:timingMax})}<div class="chartTitle">消耗推移（%）</div>${miniLineSVG([{color:'#72e0a7',points:rows.map(v=>v.battery)},{color:'#e7cf6e',points:rows.map(v=>v.tire)},{color:'#b8a4ed',points:rows.map(v=>v.health)}])}<div class="chartLegend"><span style="color:#72e0a7">● 電池</span><span style="color:#e7cf6e">● タイヤ</span><span style="color:#b8a4ed">● モーター寿命</span></div><div class="chartTitle">モーター温度（℃）</div>${miniLineSVG([{color:'#f3a468',points:rows.map(v=>v.temp)}],{min:0,max:Math.max(100,...rows.map(v=>v.temp))*1.1})}<div class="chartNote">${rows.length}周記録 / 直近 ${rows.at(-1).time.toFixed(2)}秒 / 電池 ${rows.at(-1).battery.toFixed(1)}% / モーター ${rows.at(-1).temp.toFixed(1)}℃</div>`;
+}
 function persist(){localStorage.setItem(settingsKey,JSON.stringify(cfg))}
 function renderUI(){ $('machines').innerHTML=TYPES.map((t,i)=>`<button class="pick ${cfg.type===i?'active':''}" data-type="${i}">${t.label}<small>${t.short}</small></button>`).join('');
  $('partTabs').innerHTML=GROUPS.map(g=>`<button class="partTab ${g.key===activeGroup?'active':''}" data-group="${g.key}">${g.label}</button>`).join('');
- const group=GROUPS.find(x=>x.key===activeGroup);$('parts').innerHTML=group.parts.map((p,i)=>`<button class="option ${cfg.parts[group.key]===i?'active':''}" data-part="${i}"><div><strong>${p.name}</strong><br><span>${p.mass>0?'+':''}${p.mass}g / ${group.key==='motor'?`回転×${p.rpm}`:group.key==='gear'?`比率 ${p.ratio}:1`:group.key==='tire'?`${p.diam}mm`:group.key==='roller'?`${p.diam}mm`:group.key==='damper'?`安定+${Math.round(p.stability*100)}%`:'抵抗係数 '+p.drag}</span></div>${cfg.parts[group.key]===i?'<span class="chip">装着中</span>':''}</button>`).join('');$('partInfo').textContent=group.info;
- const p=physics(),s=score(p);$('statRows').innerHTML=[['最高速',s.speed],['加速',s.accel],['コーナー',s.corner],['安定性',s.stability]].map(([name,val])=>`<div class="stat"><span>${name}</span><div class="bar"><div class="fill" style="width:${val}%"></div></div><strong>${val}</strong></div>`).join('');
+ const group=GROUPS.find(x=>x.key===activeGroup);$('parts').innerHTML=group.parts.map((p,i)=>`<button class="option ${cfg.parts[group.key]===i?'active':''}" data-part="${i}"><div><strong>${p.name}</strong><br><span>${p.mass>0?'+':''}${p.mass}g / ${group.key==='motor'?`回転×${p.rpm} / 熱×${p.heat}`:group.key==='battery'?`出力×${p.voltage} / 容量×${p.capacity}`:group.key==='gear'?`比率 ${p.ratio}:1`:group.key==='tire'?`${p.diam}mm`:group.key==='roller'?`${p.diam}mm`:group.key==='damper'?`安定+${Math.round(p.stability*100)}%`:'抵抗係数 '+p.drag}</span></div>${cfg.parts[group.key]===i?'<span class="chip">装着中</span>':''}</button>`).join('');$('partInfo').textContent=group.info;
+ const p=physics(),s=score(p);renderTuningCharts();$('statRows').innerHTML=[['最高速',s.speed],['加速',s.accel],['コーナー',s.corner],['安定性',s.stability]].map(([name,val])=>`<div class="stat"><span>${name}</span><div class="bar"><div class="fill" style="width:${val}%"></div></div><strong>${val}</strong></div>`).join('');
  $('viewStatus').innerHTML=`<strong>${TYPES[cfg.type].name}</strong><br>総重量 ${p.mass} g<br>理論最高速 ${(p.maxSpeed*3.6).toFixed(1)} km/h<br>全パーツ無料`;renderFine();}
 const FINE_CONTROLS=[
  {key:'rollerHeight',label:'ローラー高さ',unit:'mm',scale:2,desc:'低いほどコーナーの安定性が増す傾向'},
  {key:'rollerSpread',label:'ローラー前後幅',unit:'mm',scale:12,desc:'前後幅を広げると安定性が向上（抵抗も増加）'},
  {key:'damperBias',label:'ダンパー配置',unit:'',scale:1,desc:'−：後寄り / ＋：前寄り（装着時に有効）'},
+ {key:'motorTune',label:'モーター出力調整',unit:'段階',scale:1,desc:'−：冷却・長寿命 / ＋：最高出力・高発熱'},
  {key:'brakeHeight',label:'ブレーキ地上高',unit:'mm',scale:1,desc:'低いほど路面抵抗が増える（装着時に有効）'}
 ];
 function renderFine(){const node=$('fineControls');if(!node)return;
  node.innerHTML=FINE_CONTROLS.map(c=>{const [a,b]=FINE_RANGES[c.key],v=cfg.fine[c.key],shown=c.key==='brakeHeight'?v:c.key==='damperBias'?(v===0?'中央':v<0?'後方 '+Math.abs(v):'前方 '+v):(v*c.scale>0?'+':'')+(v*c.scale)+c.unit;return `<label class="fineRow"><span><strong>${c.label}</strong><small>${c.desc}</small></span><div class="fineAdjust"><button data-fine="${c.key}" data-step="-1" ${v<=a?'disabled':''} aria-label="${c.label}を下げる">−</button><output>${shown}</output><button data-fine="${c.key}" data-step="1" ${v>=b?'disabled':''} aria-label="${c.label}を上げる">＋</button></div></label>`}).join('');}
 $('fineControls').addEventListener('click',e=>{const b=e.target.closest('[data-fine]');if(!b)return;const k=b.dataset.fine,step=Number(b.dataset.step),[min,max]=FINE_RANGES[k];cfg.fine[k]=Math.max(min,Math.min(max,cfg.fine[k]+step));refreshCar()});
-$('resetFine').onclick=()=>{cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2};refreshCar()};
+$('resetFine').onclick=()=>{cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,motorTune:0};refreshCar()};
 // Reset every tuning parameter in one operation, without changing TYPE S/P/B.
 $('normalSet').onclick=()=>{
  cfg.parts={...defaults};
- cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2};
+ cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,motorTune:0};
  activeGroup='motor';
  refreshCar(); // Persists the full setting, updates stats and rebuilds the 3D machine.
  const button=$('normalSet');
@@ -410,33 +446,42 @@ function updateCrashAnimation(dt){
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
  const base=courseMode==='technical'?'technical_v042':'oval_3x_v03';
- return r?.wearEnabled?base+'_wear049':base;
+ return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
  const p=r.p;
  if(!r.wearEnabled)return p;
- const battery=r.battery/100, tire=r.tire/100;
- const voltageFactor=.64+.36*Math.max(0,battery);
- const heatFactor=r.motorTemp>65?Math.max(.73,1-(r.motorTemp-65)*.006):1;
+ const battery=r.battery/100, tire=r.tire/100, health=r.motorHealth/100;
+ const batteryPart=choose('battery');
+ const voltageFactor=Math.max(.38,1-(1-battery)*(.36*batteryPart.sag));
+ const heatFactor=r.motorTemp>65?Math.max(.60,1-(r.motorTemp-65)*(.0068/motorDurability())):1;
+ const healthFactor=.55+.45*health;
  const tractionFactor=.74+.26*Math.max(0,tire);
  const stabilityFactor=.82+.18*Math.max(0,tire);
  return {...p,
-  maxSpeed:p.maxSpeed*voltageFactor*heatFactor,
-  acceleration:p.acceleration*(.55+.45*battery)*heatFactor,
+  maxSpeed:p.maxSpeed*voltageFactor*heatFactor*healthFactor,
+  acceleration:p.acceleration*(.55+.45*battery)*heatFactor*healthFactor,
   grip:p.grip*tractionFactor,
   stability:p.stability*stabilityFactor,
   cornerLimit:p.cornerLimit*Math.sqrt(tractionFactor*stabilityFactor),
   landing:p.landing*(.82+.18*tire)
  };
 }
+function motorDurability(){return choose('motor').durability*Math.max(.65,1-cfg.fine.motorTune*.10)}
 function accumulateWear(r,dt,advance){
  if(!r.wearEnabled)return;
  // Physical model-time, not accelerated wall-clock time.
- const power=Math.min(1.7,r.v/Math.max(1,r.p.maxSpeed))*(choose('motor').rpm);
- r.battery=Math.max(0,r.battery-dt*(.12+.105*power*power));
- r.tire=Math.max(0,r.tire-advance*(.0032+Math.max(0,power-1)*.002));
+ const motor=choose('motor'),cell=choose('battery');
+ const power=Math.min(1.7,r.v/Math.max(1,r.p.maxSpeed))*motor.rpm*(1+cfg.fine.motorTune*.06);
+ r.battery=Math.max(0,r.battery-dt*(.12+.105*power*power)*cell.sag/cell.capacity);
+ const tire=choose('tire');
+ const tireWear=tire.grip>1.1?1.42:tire.grip<.9?.76:1;
+ r.tire=Math.max(0,r.tire-advance*(.0032+Math.max(0,power-1)*.002)*tireWear);
  const ambient=25;
- r.motorTemp=Math.max(ambient,r.motorTemp+dt*(.5+1.05*power*power-.022*(r.motorTemp-ambient)));
+ const heatMultiplier=motor.heat*(1+cfg.fine.motorTune*.13);
+ r.motorTemp=Math.max(ambient,r.motorTemp+dt*((.5+1.05*power*power)*heatMultiplier-.022*(r.motorTemp-ambient)));
+ const stress=Math.max(0,r.motorTemp-57)/45;
+ r.motorHealth=Math.max(0,r.motorHealth-dt*(.0025+.028*stress*stress)*heatMultiplier/motorDurability());
 }
 function updateCondition(){
  const r=race,condition=$('conditionPanel');
@@ -447,6 +492,8 @@ function updateCondition(){
  $('batteryValue').textContent=battery.toFixed(1)+'%';
  $('tireValue').textContent=tire.toFixed(1)+'%';
  $('motorValue').textContent=temp.toFixed(1)+'℃';
+ $('motorHealthValue').textContent=(r?.motorHealth??100).toFixed(1)+'%';
+ $('motorHealthBar').style.width=(r?.motorHealth??100)+'%';
  $('batteryBar').style.width=battery+'%';
  $('tireBar').style.width=tire+'%';
  $('heatBar').style.width=Math.max(0,Math.min(100,(temp-20)/.8))+'%';
@@ -455,11 +502,11 @@ function updateCondition(){
 }
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,r.distance/ovalLength*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);updateCondition()}
 function startRace(){
- const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,tire:100,motorTemp:25,loop:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
+ const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,tire:100,motorTemp:25,motorHealth:100,telemetry:[],loop:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';$('stopRun').disabled=!race.loop;
  $('runLog').textContent=courseMode==='technical'?'スタート！ 立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
- placeCar(0);accum=0;displayRace();
+ placeCar(0);accum=0;renderLapAnalysis(race);displayRace();
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;$('stopRun').disabled=true;
@@ -475,6 +522,7 @@ function stopRace(failed){
   $('runLog').textContent=`完走！ ${report}${better?' 新しいベストです。':' 改造してもう一度比べてみましょう。'}`;
   if(better){records[key]={time:t,max:r.maxV*3.6,type:TYPES[cfg.type].label,parts:{...cfg.parts},fine:{...cfg.fine}};localStorage.setItem(recordsKey,JSON.stringify(records))}
  }
+ if(r.telemetry?.length)renderLapAnalysis(r);
  updateBest();displayRace();
 }
 // Simulate the distance remaining until the *next* corner. A turn needs a
@@ -583,7 +631,7 @@ function raceStep(dt){
  if(r.risk>.18){placeCar(Math.min(.9999,r.distance/ovalLength));stopRace(true);return}
  if(r.distance>=ovalLength){
   const lapTime=r.time-r.lapStart;
-  r.laps++;r.lastLap=lapTime;r.bestLap=Math.min(r.bestLap??Infinity,lapTime);
+  r.laps++;r.lastLap=lapTime;r.bestLap=Math.min(r.bestLap??Infinity,lapTime);snapshotLap(r,lapTime);
   const recordKey=raceRecordKey(r);
   if(r.loop && (!records[recordKey] || lapTime<records[recordKey].time)){
    records[recordKey]={time:lapTime,max:r.maxV*3.6,type:TYPES[cfg.type].label,parts:{...cfg.parts},fine:{...cfg.fine}};
@@ -594,7 +642,7 @@ function raceStep(dt){
    r.distance-=ovalLength;r.lapStart=r.time;r.jumps=0;
    $('resultTime').textContent=lapTime.toFixed(2)+' s';
    $('delta').textContent=`${r.laps}周完了 / 最速 ${r.bestLap.toFixed(2)} 秒 / 続行中`;
-   $('runLog').textContent=`${r.laps}周完了。直近 ${lapTime.toFixed(2)} 秒 / ベスト ${r.bestLap.toFixed(2)} 秒。バッテリー・タイヤ・パーツは現段階では消耗しません。`;
+   $('runLog').textContent=`${r.laps}周完了。直近 ${lapTime.toFixed(2)} 秒 / ベスト ${r.bestLap.toFixed(2)} 秒。${r.wearEnabled?`電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター寿命 ${r.motorHealth.toFixed(1)}%`:'消耗OFF'}。`;
    placeCar(r.distance/ovalLength);return;
   }
   r.distance=ovalLength;placeCar(1);stopRace(false);return;
