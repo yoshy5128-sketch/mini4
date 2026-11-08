@@ -30,6 +30,7 @@ if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
 cfg.parts={...defaults,...cfg.parts};for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
 let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
 const choose=k=>GROUPS.find(x=>x.key===k).parts[cfg.parts[k]];
+const TRACK_SCALE=3;
 // v0.2: model-scale metres and seconds; tuned for Mini 4WD-like 30–60 km/h.
 // The motor/gear/tyre characteristics contribute continuously rather than
 // changing animation playback speed. These are fictional calibration values.
@@ -42,7 +43,7 @@ function physics(){
  const grip=ti.grip*t.grip;
  const stability=t.stability*r.stability*(1+d.stability)*Math.pow(124/mass,.15);
  // A higher supported lateral load permits faster turns, but weighs more.
- const cornerLimit=9.2*Math.sqrt(Math.max(.35,grip*stability))*(1+.025*(r.diam-13)/6);
+ const cornerLimit=9.2*Math.pow(TRACK_SCALE,.25)*Math.sqrt(Math.max(.35,grip*stability))*(1+.025*(r.diam-13)/6);
  const cornerFriction=.36*r.friction+Math.max(0,b.drag)*2.5;
  const brakePower=9+4*Math.max(0,grip-1)+3*Math.max(0,stability-1);
  return {mass,maxSpeed,acceleration,grip,stability,cornerLimit,cornerFriction,brakePower,
@@ -122,7 +123,11 @@ function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[c
  return group;}
 function refreshCar(){persist();renderUI();if(car){carContainer.remove(car);car.traverse(o=>{if(o.isMesh){o.geometry?.dispose();if(o.material&&!([metal,black,rubber,carbon,silver,gold].includes(o.material)))o.material.dispose()}})}car=buildCar();carContainer.add(car);carContainer.position.y=screen==='test'?TRACK_CAR_Y:GARAGE_CAR_Y;if(screen==='test'){setScreen('garage')}}
 // Smooth closed oval in X/Z plane, with curvature-based corner dynamics.
-const curveRadius=3.2,straightHalf=4.2,ovalLength=4*straightHalf+2*Math.PI*curveRadius;
+// Ver.0.2.1: 3x the original physical circuit length (not a 3-lap timer).
+// The lane width stays unchanged: this makes a genuinely longer course.
+const curveRadius=3.2*TRACK_SCALE,straightHalf=4.2*TRACK_SCALE;
+const ovalLength=4*straightHalf+2*Math.PI*curveRadius;
+const TRACK_HALF_WIDTH=.81;
 function oval(u,r=curveRadius){let dist=((u%1)+1)%1*ovalLength;const straight=straightHalf*2, arc=Math.PI*curveRadius;
  if(dist<straight)return {x:-straightHalf+dist,z:-r,ang:0,curved:false};dist-=straight;
  if(dist<arc){let a=-Math.PI/2+dist/curveRadius;return {x:straightHalf+Math.cos(a)*r,z:Math.sin(a)*r,ang:a+Math.PI/2,curved:true}}dist-=arc;
@@ -154,11 +159,11 @@ function rail(radius,color){
 const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshBasicMaterial({color:0x14272c}));
 trackGround.rotation.x=-Math.PI/2;trackGround.position.y=-.03;
 trackGround.receiveShadow=false;trackGround.castShadow=false;trackGroup.add(trackGround);
-solidRoad(4.02,2.40);
-rail(4.02,0xe76566);rail(2.40,0xe5ebf0);
-for(let i=0;i<34;i++){const p=oval(i/34,4.12);const pole=cyl(trackGroup,.025,.025,.35,metal,p.x,.18,p.z);}
-for(let i=0;i<5;i++){const p=oval(.05+i*.005,3.1);box(trackGroup,.035,.012,1.65,i%2?black:silver,p.x,.10,p.z)}
-const finish=box(trackGroup,.16,.14,1.9,mat(0xe2d2b7,.0,.9),-3.7,.13,-3.2);finish.rotation.y=0;
+solidRoad(curveRadius+TRACK_HALF_WIDTH,curveRadius-TRACK_HALF_WIDTH);
+rail(curveRadius+TRACK_HALF_WIDTH,0xe76566);rail(curveRadius-TRACK_HALF_WIDTH,0xe5ebf0);
+for(let i=0;i<90;i++){const p=oval(i/90,curveRadius+TRACK_HALF_WIDTH+.10);const pole=cyl(trackGroup,.025,.025,.35,metal,p.x,.18,p.z);}
+for(let i=0;i<5;i++){const p=oval(.018+i*.0017,curveRadius-.1);box(trackGroup,.035,.012,1.65,i%2?black:silver,p.x,.10,p.z)}
+const finish=box(trackGroup,.16,.14,1.9,mat(0xe2d2b7,.0,.9),-straightHalf+.5,.13,-curveRadius);finish.rotation.y=0;
 const trackSign=box(trackGroup,3,.05,.85,mat(0x1a3442),0,.01,0);
 // Match the scaled tires to the actual running surface and podium top.
 const TRACK_CAR_Y=.04-.9*.01;
@@ -170,7 +175,7 @@ function fitTrackCamera(){
  const rect=renderer.domElement.getBoundingClientRect();
  const aspect=Math.max(.25,rect.width/Math.max(1,rect.height));
  camera.fov=48;camera.updateProjectionMatrix();
- const halfW=8.65,halfD=4.75;
+ const halfW=straightHalf+curveRadius+TRACK_HALF_WIDTH+1.0,halfD=curveRadius+TRACK_HALF_WIDTH+1.0;
  const direction=new THREE.Vector3(0,1.35,.65).normalize();
  const projectedVertical=halfD*direction.y+.35*direction.z;
  const halfTan=Math.tan(THREE.MathUtils.degToRad(camera.fov*.5));
@@ -183,7 +188,7 @@ function fitTrackCamera(){
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(0,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
+function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
@@ -195,7 +200,7 @@ function startRace(){
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;
- const key='oval';const before=records[key]?.time;
+ const key='oval_3x';const before=records[key]?.time;
  const report=`最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
  if(failed){
   $('resultTime').textContent='COURSE OUT';$('delta').textContent='コーナー速度がローラー・グリップの許容範囲を超過';
@@ -252,7 +257,7 @@ function raceStep(dt){
  if(r.distance>=ovalLength){r.distance=ovalLength;placeCar(1);stopRace(false);return}
  placeCar(r.distance/ovalLength);
 }
-function updateBest(){const b=records.oval;$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}`:'まだ記録がありません'}
+function updateBest(){const b=records.oval_3x;$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}`:'まだ記録がありません'}
 $('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
