@@ -278,7 +278,10 @@ function addTechnicalSurface(){
 }
 addTechnicalSurface();
 function showCourse(){
- flatTrackMeshes.forEach(o=>o.visible=courseMode==='oval');
+ // The selectable venue ground is shared by both track types.
+ // Only flat oval road/rails/props are hidden on the technical course.
+ flatTrackMeshes.forEach(o=>o.visible=(o===trackGround)||courseMode==='oval');
+ trackGround.visible=true;
  technicalGroup.visible=courseMode==='technical';
  const heading=document.getElementById('courseHeading');
  if(heading)heading.textContent=courseMode==='oval'?'TEST TRACK / 3倍ロングオーバル':'TEST TRACK / 立体テクニカル';
