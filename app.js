@@ -28,7 +28,7 @@ function getStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key
 let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
 if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
 cfg.parts={...defaults,...cfg.parts};cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,...cfg.fine};const FINE_RANGES={rollerHeight:[-2,2],rollerSpread:[-2,2],damperBias:[-2,2],brakeHeight:[0,4]};for(const [k,[lo,hi]] of Object.entries(FINE_RANGES))cfg.fine[k]=Math.max(lo,Math.min(hi,Math.round(Number(cfg.fine[k])||0))); for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
-let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
+let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let courseMode='oval';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
 const choose=k=>GROUPS.find(x=>x.key===k).parts[cfg.parts[k]];
 const TRACK_SCALE=3;
 // v0.2.4: run the *whole vehicle simulation* faster in wall-clock time.
@@ -189,6 +189,57 @@ for(let i=0;i<90;i++){const p=oval(i/90,curveRadius+TRACK_HALF_WIDTH+.10);const 
 for(let i=0;i<5;i++){const p=oval(.018+i*.0017,curveRadius-.1);box(trackGroup,.035,.012,1.65,i%2?black:silver,p.x,.10,p.z)}
 const finish=box(trackGroup,.16,.14,1.9,mat(0xe2d2b7,.0,.9),-straightHalf+.5,.13,-curveRadius);finish.rotation.y=0;
 const trackSign=box(trackGroup,3,.05,.85,mat(0x1a3442),0,.01,0);
+
+// v0.4.0 - The original stable, unlit oval is untouched. A separate surface
+// adds slopes and a jump, without any coplanar overlays (no Z fighting).
+const flatTrackMeshes=[...trackGroup.children];
+const technicalGroup=new THREE.Group();trackGroup.add(technicalGroup);
+const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x)};
+function elevation(u){
+ const v=((u%1)+1)%1;
+ const bridge=1.25*(smooth((v-.11)/.095)-smooth((v-.30)/.095));
+ const jump=.82*(smooth((v-.58)/.065)-smooth((v-.66)/.04));
+ return bridge+jump;
+}
+function roadSlope(u){return (elevation(u+.0003)-elevation(u-.0003))/(.0006*ovalLength)}
+function addTechnicalSurface(){
+ const N=600,verts=[],indices=[];
+ for(let i=0;i<=N;i++){
+  const u=i/N,inner=oval(u,curveRadius-TRACK_HALF_WIDTH),outer=oval(u,curveRadius+TRACK_HALF_WIDTH),y=.045+elevation(u);
+  verts.push(outer.x,y,outer.z,inner.x,y,inner.z);
+  if(i<N){const j=i*2;indices.push(j,j+1,j+2,j+1,j+3,j+2)}
+ }
+ const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(indices);geo.computeVertexNormals();
+ const road=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x455563,side:THREE.DoubleSide,depthWrite:true}));
+ road.receiveShadow=false;road.castShadow=false;technicalGroup.add(road);
+ for(const [offset,color] of [[TRACK_HALF_WIDTH,0xe76566],[-TRACK_HALF_WIDTH,0xe5ebf0]]){
+  const pts=[];
+  for(let i=0;i<=N;i++){const u=i/N,q=oval(u,curveRadius+offset);pts.push(new THREE.Vector3(q.x,.125+elevation(u),q.z))}
+  const geo=new THREE.BufferGeometry().setFromPoints(pts);
+  const rail=new THREE.Line(geo,new THREE.LineBasicMaterial({color}));technicalGroup.add(rail);
+ }
+ for(let i=0;i<64;i++){
+  const u=i/64,q=oval(u,curveRadius+TRACK_HALF_WIDTH+.11),h=elevation(u);
+  const post=cyl(technicalGroup,.025,.025,.34,metal,q.x,h+.18,q.z);post.castShadow=false;
+ }
+ // Supports are intentionally below the elevated surface, not overlapping it.
+ for(const u of [.15,.19,.24,.28,.34,.61,.645]){
+  const q=oval(u);
+  const h=elevation(u);
+  if(h>.15)box(technicalGroup,.20,h,.20,carbon,q.x,h/2,q.z);
+ }
+}
+addTechnicalSurface();
+function showCourse(){
+ flatTrackMeshes.forEach(o=>o.visible=courseMode==='oval');
+ technicalGroup.visible=courseMode==='technical';
+ const heading=document.getElementById('courseHeading');
+ if(heading)heading.textContent=courseMode==='oval'?'TEST TRACK / 3倍ロングオーバル':'TEST TRACK / 立体テクニカル';
+ const description=document.getElementById('courseDescription');
+ if(description)description.textContent=courseMode==='oval'?'約110.7mの平面コース。加速とコーナー性能を比較します。':'約110.7m。登坂・下り坂・ジャンプを含む。ブレーキとダンパーの効果を検証します。';
+ const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
+}
+
 // Match the scaled tires to the actual running surface and podium top.
 const TRACK_CAR_Y=.04-.9*.01;
 const GARAGE_CAR_Y=.185-.9*.01;
@@ -204,16 +255,16 @@ function fitTrackCamera(){
  const projectedVertical=halfD*direction.y+.35*direction.z;
  const halfTan=Math.tan(THREE.MathUtils.degToRad(camera.fov*.5));
  const requiredDistance=Math.max((halfW)/(halfTan*aspect),projectedVertical/halfTan)*1.20;
- controls.target.set(0,0,0);
- camera.position.copy(direction.multiplyScalar(requiredDistance));
+ controls.target.set(0,courseMode==='technical'?.5:0,0);
+ camera.position.copy(direction.multiplyScalar(requiredDistance)).add(new THREE.Vector3(0,courseMode==='technical'?.5:0,0));
  controls.minDistance=3;
  controls.maxDistance=Math.max(110,requiredDistance*2.5);
  camera.updateProjectionMatrix();
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
-function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
+function setScreen(mode){screen=mode;showCourse();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
+function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y+(courseMode==='technical'?elevation(u):0),p.z);carContainer.rotation.set(0,-p.ang,courseMode==='technical'?Math.atan(roadSlope(u)):0)}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
 // The previous 1.05s exit phase moved the vehicle far out of view before
@@ -292,18 +343,18 @@ function updateCrashAnimation(dt){
  }
  if(c.t>=c.exitDuration+c.fallDuration)c.active=false;
 }
-function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
+function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.done?'完走':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,
-   peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0};
+   peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0};
  $('resultTime').textContent='--.-- s';$('delta').textContent='計測中';
- $('runLog').textContent='スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
+ $('runLog').textContent=courseMode==='technical'?'スタート！ 立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
  placeCar(0);accum=0;displayRace();
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;
- const key='oval_3x_v03';const before=records[key]?.time;
- const report=`微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
+ const key=courseMode==='technical'?'technical_v04':'oval_3x_v03';const before=records[key]?.time;
+ const report=`${courseMode==='technical'?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
  if(failed){
   startCrashAnimation();
   $('resultTime').textContent='COURSE OUT';$('delta').textContent='コースアウト：'+r.crash.label;
@@ -325,10 +376,19 @@ function raceStep(dt){
  const onCurve=sector>=straight&&sector<straight+arc||sector>=2*straight+arc;
  const toCorner=sector<straight?straight-sector:sector<straight+arc?0:sector<2*straight+arc?2*straight+arc-sector:0;
  const limit=p.cornerLimit;
+ const technical=courseMode==='technical';
+ const u=r.distance/ovalLength;
+ const slope=technical?roadSlope(u):0;
  // Grip and rollers make corner speed costly even below the derailment limit.
  // No hard speed clamp: physical deceleration produces a real trade-off.
  let forwardAccel=p.acceleration*Math.max(0,1-r.v/Math.max(1,p.maxSpeed));
  forwardAccel-=p.rollingLoss+p.airDrag*r.v*r.v;
+ if(technical){
+  // Motor torque matters on inclines; low brake clearance scrubs raised road.
+  forwardAccel-=9.81*slope*.70;
+  const brake=choose('brake');
+  if(brake.mass&&Math.abs(slope)>.09)forwardAccel-=(4-cfg.fine.brakeHeight)*brake.drag*55;
+ }
  if(onCurve){forwardAccel-=p.cornerFriction*(r.v/Math.max(1,limit));r.curveTime+=dt;}
  // Brake just enough before entering corners; max braking is finite.
  if(!onCurve&&toCorner<8.0){
@@ -349,6 +409,30 @@ function raceStep(dt){
  r.v=Math.max(0,Math.min(p.maxSpeed,r.v+forwardAccel*dt));
  const advance=r.v*dt;
  r.distance+=advance;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
+ if(technical){
+  const jumpAt=.655*ovalLength;
+  if(!r.air&&!r.jumps&&r.distance>=jumpAt){
+   r.jumps=1;
+   r.air={time:0,launchHeight:elevation(.655),launchSpeed:r.v,verticalSpeed:Math.max(2.0,r.v*.21)};
+  }
+  if(r.air){
+   const a=r.air;a.time+=dt;
+   const flightY=a.launchHeight+a.verticalSpeed*a.time-4.905*a.time*a.time;
+   const roadY=elevation(r.distance/ovalLength);
+   if(a.time>.07&&flightY<=roadY){
+    const verticalImpact=Math.max(0,9.81*a.time-a.verticalSpeed);
+    const damper=choose('damper');const tire=choose('tire');
+    const tolerance=2.25 + p.landing*3.1 + damper.landing*4 + (tire.grip-1)*1.2;
+    r.air=null;r.landings++;
+    if(verticalImpact>tolerance){
+     placeCar(Math.min(.9999,r.distance/ovalLength));
+     stopRace(true);return;
+    }
+    r.v*=THREE.MathUtils.clamp(1-(verticalImpact/tolerance)*.08,.80,1);
+   }
+  }
+ }
+
  // Ratio is tied to lateral acceleration (v²/R) vs. supported load.
  if(onCurve){
   const overload=r.v/Math.max(.1,limit);
@@ -359,9 +443,11 @@ function raceStep(dt){
  if(r.risk>.18){placeCar(Math.min(.9999,r.distance/ovalLength));stopRace(true);return}
  if(r.distance>=ovalLength){r.distance=ovalLength;placeCar(1);stopRace(false);return}
  placeCar(r.distance/ovalLength);
+ if(r.air){const a=r.air;carContainer.position.y=TRACK_CAR_Y+a.launchHeight+a.verticalSpeed*a.time-4.905*a.time*a.time;carContainer.rotation.z=.08;}
 }
-function updateBest(){const b=records.oval_3x_v03;$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
-$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+
+function updateBest(){const b=records[courseMode==='technical'?'technical_v04':'oval_3x_v03'];$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
+$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed*RACE_PLAYBACK_RATE;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
  if(screen==='test'&&race?.crash?.active){updateCrashAnimation(elapsed);displayRace()}
