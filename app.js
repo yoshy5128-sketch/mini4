@@ -406,9 +406,56 @@ function updateCrashAnimation(dt){
  }
  if(c.t>=c.exitDuration+c.fallDuration)c.active=false;
 }
-function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.done?'完走':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,r.distance/ovalLength*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2)}
+// Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
+// not laboratory measurements. Never mutate the setup's reference physics.
+function raceRecordKey(r=race){
+ const base=courseMode==='technical'?'technical_v042':'oval_3x_v03';
+ return r?.wearEnabled?base+'_wear049':base;
+}
+function deriveRunningPhysics(r){
+ const p=r.p;
+ if(!r.wearEnabled)return p;
+ const battery=r.battery/100, tire=r.tire/100;
+ const voltageFactor=.64+.36*Math.max(0,battery);
+ const heatFactor=r.motorTemp>65?Math.max(.73,1-(r.motorTemp-65)*.006):1;
+ const tractionFactor=.74+.26*Math.max(0,tire);
+ const stabilityFactor=.82+.18*Math.max(0,tire);
+ return {...p,
+  maxSpeed:p.maxSpeed*voltageFactor*heatFactor,
+  acceleration:p.acceleration*(.55+.45*battery)*heatFactor,
+  grip:p.grip*tractionFactor,
+  stability:p.stability*stabilityFactor,
+  cornerLimit:p.cornerLimit*Math.sqrt(tractionFactor*stabilityFactor),
+  landing:p.landing*(.82+.18*tire)
+ };
+}
+function accumulateWear(r,dt,advance){
+ if(!r.wearEnabled)return;
+ // Physical model-time, not accelerated wall-clock time.
+ const power=Math.min(1.7,r.v/Math.max(1,r.p.maxSpeed))*(choose('motor').rpm);
+ r.battery=Math.max(0,r.battery-dt*(.12+.105*power*power));
+ r.tire=Math.max(0,r.tire-advance*(.0032+Math.max(0,power-1)*.002));
+ const ambient=25;
+ r.motorTemp=Math.max(ambient,r.motorTemp+dt*(.5+1.05*power*power-.022*(r.motorTemp-ambient)));
+}
+function updateCondition(){
+ const r=race,condition=$('conditionPanel');
+ if(!condition)return;
+ const enabled=r?.wearEnabled??$('wearEnabled').checked;
+ condition.classList.toggle('wearInactive',!enabled);
+ const battery=r?.battery??100,tire=r?.tire??100,temp=r?.motorTemp??25;
+ $('batteryValue').textContent=battery.toFixed(1)+'%';
+ $('tireValue').textContent=tire.toFixed(1)+'%';
+ $('motorValue').textContent=temp.toFixed(1)+'℃';
+ $('batteryBar').style.width=battery+'%';
+ $('tireBar').style.width=tire+'%';
+ $('heatBar').style.width=Math.max(0,Math.min(100,(temp-20)/.8))+'%';
+ $('conditionDistance').textContent=`累計走行 ${((r?.laps??0)*ovalLength+(r?.distance??0)).toFixed(1)} m`;
+ $('conditionNote').textContent=!enabled?'消耗OFF：比較用の一定性能で走行します':r?.active?'消耗・発熱を計算中（再スタートで新品に戻ります）':'走行開始時は新品状態です';
+}
+function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,r.distance/ovalLength*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);updateCondition()}
 function startRace(){
- const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,loop:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
+ const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,tire:100,motorTemp:25,loop:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';$('stopRun').disabled=!race.loop;
  $('runLog').textContent=courseMode==='technical'?'スタート！ 立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
@@ -416,8 +463,8 @@ function startRace(){
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;$('stopRun').disabled=true;
- const key=courseMode==='technical'?'technical_v042':'oval_3x_v03';const before=records[key]?.time;
- const report=`${courseMode==='technical'?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回 / 着地判定 ${r.lastLanding} / 着地衝撃 ${r.landingShock.toFixed(1)} / 最大姿勢角 ${r.landingPitch.toFixed(1)}° / バウンド ${r.bounces}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
+ const key=raceRecordKey(r);const before=records[key]?.time;
+ const report=`${courseMode==='technical'?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回 / 着地判定 ${r.lastLanding} / 着地衝撃 ${r.landingShock.toFixed(1)} / 最大姿勢角 ${r.landingPitch.toFixed(1)}° / バウンド ${r.bounces}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g / 電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃。`;
  if(failed){
   startCrashAnimation();
   $('resultTime').textContent='COURSE OUT';$('delta').textContent='コースアウト：'+r.crash.label;
@@ -434,7 +481,7 @@ function stopRace(failed){
 // finite braking distance: strong motors without enough stability can go out.
 function raceStep(dt){
  if(!race?.active)return;
- const r=race,p=r.p,sector=((r.distance%ovalLength)+ovalLength)%ovalLength;
+ const r=race,p=deriveRunningPhysics(r),sector=((r.distance%ovalLength)+ovalLength)%ovalLength;
  const straight=2*straightHalf,arc=Math.PI*curveRadius;
  const onCurve=sector>=straight&&sector<straight+arc||sector>=2*straight+arc;
  const toCorner=sector<straight?straight-sector:sector<straight+arc?0:sector<2*straight+arc?2*straight+arc-sector:0;
@@ -472,6 +519,8 @@ function raceStep(dt){
  r.v=Math.max(0,Math.min(p.maxSpeed,r.v+forwardAccel*dt));
  const advance=r.v*dt;
  r.distance+=advance;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
+ accumulateWear(r,dt,advance);
+ if(r.wearEnabled&&r.battery<=0){r.active=false;r.done=true;r.batteryEmpty=true;$('stopRun').disabled=true;$('stateRead').textContent='電池切れ';$('resultTime').textContent='BATTERY EMPTY';$('delta').textContent=`${r.laps}周完走後、電池残量が0%になりました`;$('runLog').textContent=`連続走行終了。累計走行 ${((r.laps*ovalLength)+r.distance).toFixed(1)}m。タイヤ残量 ${r.tire.toFixed(1)}%、モーター温度 ${r.motorTemp.toFixed(1)}℃。`;displayRace();return;}
  if(technical){
   // Longitudinal balance combines front/rear dampers and fine position.
   // Positive pitch = nose up; excessive nose-up/down on landing is penalized.
@@ -535,13 +584,13 @@ function raceStep(dt){
  if(r.distance>=ovalLength){
   const lapTime=r.time-r.lapStart;
   r.laps++;r.lastLap=lapTime;r.bestLap=Math.min(r.bestLap??Infinity,lapTime);
-  const recordKey=courseMode==='technical'?'technical_v042':'oval_3x_v03';
+  const recordKey=raceRecordKey(r);
   if(r.loop && (!records[recordKey] || lapTime<records[recordKey].time)){
    records[recordKey]={time:lapTime,max:r.maxV*3.6,type:TYPES[cfg.type].label,parts:{...cfg.parts},fine:{...cfg.fine}};
    localStorage.setItem(recordsKey,JSON.stringify(records));updateBest();
   }
   if(r.loop){
-   // Keep the current speed and wear-free physics for subsequent laps.
+   // Maintain speed, battery, heat and tyre condition into next lap.
    r.distance-=ovalLength;r.lapStart=r.time;r.jumps=0;
    $('resultTime').textContent=lapTime.toFixed(2)+' s';
    $('delta').textContent=`${r.laps}周完了 / 最速 ${r.bestLap.toFixed(2)} 秒 / 続行中`;
@@ -555,7 +604,7 @@ function raceStep(dt){
  else if(r.bounce){const b=r.bounce,q=b.time/b.duration;carContainer.position.y+=b.amplitude*Math.sin(Math.PI*q);carContainer.rotation.z=b.pitch*(1-q);}
 }
 
-function updateBest(){const b=records[courseMode==='technical'?'technical_v042':'oval_3x_v03'];$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
+function updateBest(){const b=records[raceRecordKey()];$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
 // A standalone settings layer: additional course preferences can be added here later.
 const courseSettingsOverlay=$('courseSettingsOverlay');
 const courseSettingsBtn=$('courseSettingsBtn');
@@ -595,12 +644,14 @@ document.addEventListener('keydown',e=>{
 });
 applyGroundColor(groundColorChoice,false);
 $('arenaBackground').addEventListener('change',syncArenaBackdrop);
+$('wearEnabled').addEventListener('change',()=>{if(!race?.active){race=null;updateBest();updateCondition();}});
 $('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;$('stopRun').disabled=!race.loop;}});
-$('stopRun').addEventListener('click',()=>{if(!race?.active)return;const r=race;r.active=false;r.done=true;$('stopRun').disabled=true;$('stateRead').textContent='走行停止';$('delta').textContent=`任意停止：${r.laps}周完了 / 総走行 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`連続試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}`;});
-$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stopRun').disabled=true;$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
-let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
+$('stopRun').addEventListener('click',()=>{if(!race?.active)return;const r=race;r.active=false;r.done=true;$('stopRun').disabled=true;$('stateRead').textContent='走行停止';$('delta').textContent=`任意停止：${r.laps}周完了 / 総走行 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`連続試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}。電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃`;updateCondition();});
+$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stopRun').disabled=true;$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;let lastConditionTime=0;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed*RACE_PLAYBACK_RATE;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
  if(screen==='test'&&race?.crash?.active){updateCrashAnimation(elapsed);displayRace()}
+ if(now-lastConditionTime>150){lastConditionTime=now;if(screen==='test')updateCondition();}
  const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active?RACE_PLAYBACK_RATE:race?.crash?.active?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
  if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
  controls.update();
@@ -618,4 +669,4 @@ function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now
  }
  renderer.render(scene,camera)}
 function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
-new ResizeObserver(resize).observe($('scene'));window.addEventListener('resize',resize);renderUI();refreshCar();setScreen('garage');resize();requestAnimationFrame(animate);
+new ResizeObserver(resize).observe($('scene'));window.addEventListener('resize',resize);renderUI();refreshCar();setScreen('garage');updateCondition();resize();requestAnimationFrame(animate);
