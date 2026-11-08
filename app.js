@@ -357,15 +357,15 @@ function updateCrashAnimation(dt){
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.done?'完走':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,
-   peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0};
+   peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  $('resultTime').textContent='--.-- s';$('delta').textContent='計測中';
  $('runLog').textContent=courseMode==='technical'?'スタート！ 立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
  placeCar(0);accum=0;displayRace();
 }
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;
- const key=courseMode==='technical'?'technical_v04':'oval_3x_v03';const before=records[key]?.time;
- const report=`${courseMode==='technical'?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
+ const key=courseMode==='technical'?'technical_v042':'oval_3x_v03';const before=records[key]?.time;
+ const report=`${courseMode==='technical'?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回 / 着地判定 ${r.lastLanding} / 着地衝撃 ${r.landingShock.toFixed(1)} / 最大姿勢角 ${r.landingPitch.toFixed(1)}° / バウンド ${r.bounces}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g。`;
  if(failed){
   startCrashAnimation();
   $('resultTime').textContent='COURSE OUT';$('delta').textContent='コースアウト：'+r.crash.label;
@@ -421,27 +421,55 @@ function raceStep(dt){
  const advance=r.v*dt;
  r.distance+=advance;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
  if(technical){
+  // Longitudinal balance combines front/rear dampers and fine position.
+  // Positive pitch = nose up; excessive nose-up/down on landing is penalized.
+  const damper=choose('damper'), tire=choose('tire');
+  const bias=(damper.mass ? cfg.fine.damperBias*.16 : 0)
+      +(cfg.parts.damper===1? .14 : cfg.parts.damper===2?-.14:0)
+      +(TYPES[cfg.type].id==='P'?.04:TYPES[cfg.type].id==='S'?-.035:0);
+  const damping=Math.min(.82,.14+damper.landing*.9+damper.mass*.009);
   const jumpAt=.655*ovalLength;
   if(!r.air&&!r.jumps&&r.distance>=jumpAt){
-   r.jumps=1;
-   r.air={time:0,launchHeight:elevation(.655),launchSpeed:r.v,verticalSpeed:Math.max(2.0,r.v*.21)};
+   r.jumps++;
+   const launchSpeed=r.v;
+   const launchPitch=.035-bias*.48+(launchSpeed-10)*.005;
+   r.air={time:0,launchHeight:elevation(.655),verticalSpeed:Math.max(2.0,launchSpeed*.21),
+     pitch:launchPitch,pitchRate:(.12-bias*1.1)*(1-damping),
+     damping,bias,launchSpeed};
+   r.bounce=null;
   }
   if(r.air){
    const a=r.air;a.time+=dt;
+   // Airborne nose movement has inertia and is damped by the installed weights.
+   a.pitchRate+=(-a.bias*.38-a.pitch*.30-a.pitchRate*a.damping*.75)*dt;
+   a.pitch+=a.pitchRate*dt;
    const flightY=a.launchHeight+a.verticalSpeed*a.time-4.905*a.time*a.time;
    const roadY=elevation(r.distance/ovalLength);
    if(a.time>.07&&flightY<=roadY){
-    const verticalImpact=Math.max(0,9.81*a.time-a.verticalSpeed);
-    const damper=choose('damper');const tire=choose('tire');
-    const tolerance=2.25 + p.landing*3.1 + damper.landing*4 + (tire.grip-1)*1.2;
-    r.air=null;r.landings++;
-    if(verticalImpact>tolerance){
-     placeCar(Math.min(.9999,r.distance/ovalLength));
-     stopRace(true);return;
+    const impact=Math.max(0,9.81*a.time-a.verticalSpeed);
+    const pitchDeg=Math.abs(a.pitch)*180/Math.PI;
+    const tireSupport=(tire.grip-1)*1.2;
+    const shockTolerance=2.9+p.landing*2.7+damper.landing*3.3+tireSupport;
+    const pitchTolerance=.38+damper.landing*.32+Math.max(0,p.stability-1)*.16;
+    const impactRatio=impact/Math.max(1,shockTolerance);
+    const pitchRatio=Math.abs(a.pitch)/pitchTolerance;
+    r.landingShock=impact;r.landingPitch=pitchDeg;r.landings++;
+    const bad=impactRatio>1.13||pitchRatio>1.22||(impactRatio*.67+pitchRatio*.52)>1.26;
+    r.air=null;
+    if(bad){
+      r.lastLanding=impactRatio>1.13?'着地衝撃過大':pitchRatio>1.22?'前後姿勢不良':'着地不安定';
+      placeCar(Math.min(.9999,r.distance/ovalLength));
+      // Preserve the incorrect attitude at impact before crash animation takes over.
+      stopRace(true);return;
     }
-    r.v*=THREE.MathUtils.clamp(1-(verticalImpact/tolerance)*.08,.80,1);
+    const bounceStrength=Math.max(0,impactRatio-.40)*(1-damping)*.22;
+    r.bounces=bounceStrength>.055?1:0;
+    r.bounce=bounceStrength>.035?{time:0,duration:.24,amplitude:bounceStrength,pitch:a.pitch}:null;
+    r.lastLanding=r.bounces?'軽くバウンド':'安定着地';
+    r.v*=THREE.MathUtils.clamp(1-impactRatio*.065-bounceStrength*.08,.77,1);
    }
   }
+  if(r.bounce){r.bounce.time+=dt;if(r.bounce.time>=r.bounce.duration)r.bounce=null;}
  }
 
  // Ratio is tied to lateral acceleration (v²/R) vs. supported load.
@@ -454,10 +482,11 @@ function raceStep(dt){
  if(r.risk>.18){placeCar(Math.min(.9999,r.distance/ovalLength));stopRace(true);return}
  if(r.distance>=ovalLength){r.distance=ovalLength;placeCar(1);stopRace(false);return}
  placeCar(r.distance/ovalLength);
- if(r.air){const a=r.air;carContainer.position.y=TRACK_CAR_Y+a.launchHeight+a.verticalSpeed*a.time-4.905*a.time*a.time;carContainer.rotation.z=.08;}
+ if(r.air){const a=r.air;carContainer.position.y=TRACK_CAR_Y+a.launchHeight+a.verticalSpeed*a.time-4.905*a.time*a.time;carContainer.rotation.z=a.pitch;}
+ else if(r.bounce){const b=r.bounce,q=b.time/b.duration;carContainer.position.y+=b.amplitude*Math.sin(Math.PI*q);carContainer.rotation.z=b.pitch*(1-q);}
 }
 
-function updateBest(){const b=records[courseMode==='technical'?'technical_v04':'oval_3x_v03'];$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
+function updateBest(){const b=records[courseMode==='technical'?'technical_v042':'oval_3x_v03'];$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}\n微調整：${JSON.stringify(b.fine||{})}`:'まだ記録がありません'}
 $('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed*RACE_PLAYBACK_RATE;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
