@@ -49,9 +49,9 @@ $('saveSetup').onclick=()=>{persist();$('saveSetup').textContent='✓ 保存し�
 
 // Scene / camera / lighting
 const renderer=new THREE.WebGLRenderer({canvas:$('scene'),antialias:true,alpha:false,powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));renderer.setClearColor(0x0a1721);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));renderer.setClearColor(0x0a1721);renderer.shadowMap.enabled=false;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a1721);scene.fog=new THREE.Fog(0x0a1721,22,65);
-const camera=new THREE.PerspectiveCamera(38,1,.04,350);camera.position.set(2.8,2.25,3.7);
+const camera=new THREE.PerspectiveCamera(38,1,.25,350);camera.position.set(2.8,2.25,3.7);
 const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.25,0);controls.enableDamping=true;controls.dampingFactor=.08;controls.minDistance=1.6;controls.maxDistance=110;controls.maxPolarAngle=Math.PI*.48;
 scene.add(new THREE.HemisphereLight(0xaadffc,0x1c2b37,2.1));const sun=new THREE.DirectionalLight(0xffeee0,3.6);sun.position.set(4,9,5);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-12;sun.shadow.camera.right=12;sun.shadow.camera.top=12;sun.shadow.camera.bottom=-12;scene.add(sun);
 const ambientGlow=new THREE.PointLight(0x30bfff,18,7);ambientGlow.position.set(-3,2,-2);scene.add(ambientGlow);
@@ -115,12 +115,34 @@ function oval(u,r=curveRadius){let dist=((u%1)+1)%1*ovalLength;const straight=st
  if(dist<arc){let a=-Math.PI/2+dist/curveRadius;return {x:straightHalf+Math.cos(a)*r,z:Math.sin(a)*r,ang:a+Math.PI/2,curved:true}}dist-=arc;
  if(dist<straight)return {x:straightHalf-dist,z:r,ang:Math.PI,curved:false};dist-=straight;
  let a=Math.PI/2+dist/curveRadius;return {x:-straightHalf+Math.cos(a)*r,z:Math.sin(a)*r,ang:a+Math.PI/2,curved:true};}
-function strip(outer,inner,color){const N=256,verts=[],inds=[];for(let i=0;i<=N;i++){const p=oval(i/N,outer),q=oval(i/N,inner);verts.push(p.x,.04,p.z,q.x,.04,q.z);if(i<N){let k=2*i;inds.push(k,k+1,k+2,k+1,k+3,k+2)}}const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(inds);geo.computeVertexNormals();const mesh=new THREE.Mesh(geo,mat(color,.08,.85));mesh.receiveShadow=true;trackGroup.add(mesh);return mesh}
-function lineBand(r,color,width=.028,height=.08){let points=[];for(let i=0;i<=256;i++){const p=oval(i/256,r);points.push(new THREE.Vector3(p.x,height,p.z))}const c=new THREE.CatmullRomCurve3(points,true);const mesh=new THREE.Mesh(new THREE.TubeGeometry(c,256,width,5,true),new THREE.MeshStandardMaterial({color,metalness:.35,roughness:.45}));trackGroup.add(mesh)}
-const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(100,100),mat(0x14272c,.0,1));trackGround.rotation.x=-Math.PI/2;trackGround.position.y=-.02;trackGround.receiveShadow=true;trackGroup.add(trackGround);
-// Adjacent, non-overlapping road bands prevent Z-fighting (surface shimmer).
-strip(4.02,3.90,0x546473);strip(3.90,3.11,0x2b4b5d);strip(3.11,2.46,0x354e60);strip(2.46,2.40,0x546473);
-lineBand(4.02,0xee4c4e,.07,.13);lineBand(2.40,0xe9edf2,.07,.13);lineBand(3.1,0xe9e5c4,.018,.09);
+// Track surface v0.1.3: a SINGLE, unlit, shadow-free geometry.
+// No coplanar band meshes, decals or receiving shadows: eliminates surface shimmer.
+function solidRoad(outer,inner){
+ const N=384,vertices=[],indices=[];
+ for(let i=0;i<=N;i++){
+  const p=oval(i/N,outer),q=oval(i/N,inner);
+  vertices.push(p.x,.045,p.z,q.x,.045,q.z);
+  if(i<N){const k=i*2;indices.push(k,k+1,k+2,k+1,k+3,k+2)}
+ }
+ const geometry=new THREE.BufferGeometry();
+ geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+ geometry.setIndex(indices);geometry.computeVertexNormals();
+ const material=new THREE.MeshBasicMaterial({color:0x465260,side:THREE.DoubleSide,depthTest:true,depthWrite:true});
+ const road=new THREE.Mesh(geometry,material);road.receiveShadow=false;road.castShadow=false;
+ road.renderOrder=1;trackGroup.add(road);
+}
+function rail(radius,color){
+ const positions=[];
+ for(let i=0;i<=384;i++){const pt=oval(i/384,radius);positions.push(new THREE.Vector3(pt.x,.125,pt.z))}
+ const curve=new THREE.CatmullRomCurve3(positions,true);
+ const barrier=new THREE.Mesh(new THREE.TubeGeometry(curve,384,.052,6,true),new THREE.MeshBasicMaterial({color}));
+ barrier.receiveShadow=false;barrier.castShadow=false;trackGroup.add(barrier);
+}
+const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshBasicMaterial({color:0x14272c}));
+trackGround.rotation.x=-Math.PI/2;trackGround.position.y=-.03;
+trackGround.receiveShadow=false;trackGround.castShadow=false;trackGroup.add(trackGround);
+solidRoad(4.02,2.40);
+rail(4.02,0xe76566);rail(2.40,0xe5ebf0);
 for(let i=0;i<34;i++){const p=oval(i/34,4.12);const pole=cyl(trackGroup,.025,.025,.35,metal,p.x,.18,p.z);}
 for(let i=0;i<5;i++){const p=oval(.05+i*.005,3.1);box(trackGroup,.035,.012,1.65,i%2?black:silver,p.x,.10,p.z)}
 const finish=box(trackGroup,.16,.14,1.9,mat(0xe2d2b7,.0,.9),-3.7,.13,-3.2);finish.rotation.y=0;
