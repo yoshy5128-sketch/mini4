@@ -118,7 +118,8 @@ function oval(u,r=curveRadius){let dist=((u%1)+1)%1*ovalLength;const straight=st
 function strip(outer,inner,color){const N=256,verts=[],inds=[];for(let i=0;i<=N;i++){const p=oval(i/N,outer),q=oval(i/N,inner);verts.push(p.x,.04,p.z,q.x,.04,q.z);if(i<N){let k=2*i;inds.push(k,k+1,k+2,k+1,k+3,k+2)}}const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(inds);geo.computeVertexNormals();const mesh=new THREE.Mesh(geo,mat(color,.08,.85));mesh.receiveShadow=true;trackGroup.add(mesh);return mesh}
 function lineBand(r,color,width=.028,height=.08){let points=[];for(let i=0;i<=256;i++){const p=oval(i/256,r);points.push(new THREE.Vector3(p.x,height,p.z))}const c=new THREE.CatmullRomCurve3(points,true);const mesh=new THREE.Mesh(new THREE.TubeGeometry(c,256,width,5,true),new THREE.MeshStandardMaterial({color,metalness:.35,roughness:.45}));trackGroup.add(mesh)}
 const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(100,100),mat(0x14272c,.0,1));trackGround.rotation.x=-Math.PI/2;trackGround.position.y=-.02;trackGround.receiveShadow=true;trackGroup.add(trackGround);
-strip(4.02,2.40,0x546473);strip(3.90,3.11,0x2b4b5d);strip(3.11,2.46,0x354e60);
+// Adjacent, non-overlapping road bands prevent Z-fighting (surface shimmer).
+strip(4.02,3.90,0x546473);strip(3.90,3.11,0x2b4b5d);strip(3.11,2.46,0x354e60);strip(2.46,2.40,0x546473);
 lineBand(4.02,0xee4c4e,.07,.13);lineBand(2.40,0xe9edf2,.07,.13);lineBand(3.1,0xe9e5c4,.018,.09);
 for(let i=0;i<34;i++){const p=oval(i/34,4.12);const pole=cyl(trackGroup,.025,.025,.35,metal,p.x,.18,p.z);}
 for(let i=0;i<5;i++){const p=oval(.05+i*.005,3.1);box(trackGroup,.035,.012,1.65,i%2?black:silver,p.x,.10,p.z)}
