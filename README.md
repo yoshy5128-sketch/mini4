@@ -27,3 +27,10 @@ Then visit http://localhost:8000/. You can also upload all files to a GitHub rep
 - All part and physics parameters are provisional game-design values, not manufacturer specifications.
 - Future steps: calibrated vehicle dynamics, jump/landing physics, additional courses, component geometry improvements, AI opponents, progression/shop.
 - Local save keys: `mini4wd_lab_v01_settings`, `mini4wd_lab_v01_records`.
+
+
+## Ver.0.1.1 修正
+- レース中の速度からタイヤ回転角を算出し、四輪のタイヤ・ホイールを回転させます。
+- 車体の配置高さを路面・ガレージ台座の高さに合わせ、浮き上がりを解消します。
+- コース初期カメラはキャンバスの縦横比に応じて自動で全体を収め、ウィンドウサイズ変更時もフィットします。
+- マウス・タッチでの自由な視点操作は維持します。

@@ -28,7 +28,7 @@ function getStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key
 let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
 if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
 cfg.parts={...defaults,...cfg.parts};for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
-let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;
+let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
 const choose=k=>GROUPS.find(x=>x.key===k).parts[cfg.parts[k]];
 function physics(){const t=TYPES[cfg.type],m=choose('motor'),g=choose('gear'),ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake');const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass;
 const ratio=g.ratio, wheel=ti.diam/26, maxSpeed=5.9*m.rpm*wheel*(4/ratio)*(1/t.drag)*(1-0.004*b.drag), acceleration=2.3*m.torque*t.torque*(ratio/4)/wheel*(124/mass), grip=ti.grip*t.grip, stability=t.stability*r.stability*(1+d.stability)*(124/mass)**.13;
@@ -51,8 +51,8 @@ $('saveSetup').onclick=()=>{persist();$('saveSetup').textContent='✓ 保存し�
 const renderer=new THREE.WebGLRenderer({canvas:$('scene'),antialias:true,alpha:false,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));renderer.setClearColor(0x0a1721);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a1721);scene.fog=new THREE.Fog(0x0a1721,22,65);
-const camera=new THREE.PerspectiveCamera(38,1,.04,120);camera.position.set(2.8,2.25,3.7);
-const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.25,0);controls.enableDamping=true;controls.dampingFactor=.08;controls.minDistance=1.6;controls.maxDistance=9;controls.maxPolarAngle=Math.PI*.48;
+const camera=new THREE.PerspectiveCamera(38,1,.04,350);camera.position.set(2.8,2.25,3.7);
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.25,0);controls.enableDamping=true;controls.dampingFactor=.08;controls.minDistance=1.6;controls.maxDistance=110;controls.maxPolarAngle=Math.PI*.48;
 scene.add(new THREE.HemisphereLight(0xaadffc,0x1c2b37,2.1));const sun=new THREE.DirectionalLight(0xffeee0,3.6);sun.position.set(4,9,5);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-12;sun.shadow.camera.right=12;sun.shadow.camera.top=12;sun.shadow.camera.bottom=-12;scene.add(sun);
 const ambientGlow=new THREE.PointLight(0x30bfff,18,7);ambientGlow.position.set(-3,2,-2);scene.add(ambientGlow);
 const garageGroup=new THREE.Group();scene.add(garageGroup);const trackGroup=new THREE.Group();trackGroup.visible=false;scene.add(trackGroup);const carContainer=new THREE.Group();scene.add(carContainer);
@@ -65,15 +65,19 @@ const garageFloor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),mat(0x182733,.
 const podium=new THREE.Mesh(new THREE.CylinderGeometry(1.43,1.53,.17,72),mat(0x263e4b,.62,.32));podium.position.y=.10;podium.receiveShadow=true;garageGroup.add(podium);
 const rim=new THREE.Mesh(new THREE.TorusGeometry(1.42,.026,8,80),new THREE.MeshBasicMaterial({color:0x55d9f2}));rim.rotation.x=Math.PI/2;rim.position.y=.195;garageGroup.add(rim);
 const grid=new THREE.GridHelper(16,28,0x345265,0x213847);grid.position.y=.004;garageGroup.add(grid);
-function buildCar(){const group=new THREE.Group();const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');const body=mat(t.color,.25,.3),accent=mat(t.accent,.32,.34);const scale=0.9;group.scale.setScalar(scale);
+function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');const body=mat(t.color,.25,.3),accent=mat(t.accent,.32,.34);const scale=0.9;group.scale.setScalar(scale);
  // Dimensions: local 3D units; nose along positive X. Wheels on both sides.
  box(group,1.35,.105,.58,carbon,0,.20,0);box(group,1.52,.06,.67,black,0,.13,0);
  const wr=ti.diam/26*.165;
  for(const x of [-.47,.47])for(const z of [-.38,.38]){
-  const wheel=cyl(group,wr,wr,.15,rubber,x,wr+.01,z);wheel.rotation.x=Math.PI/2;
-  const side=cyl(group,wr*.64,wr*.64,.154,mat(t.accent,.62,.28),x,wr+.01,z);side.rotation.x=Math.PI/2;
-  cyl(group,wr*.21,wr*.21,.16,silver,x,wr+.01,z).rotation.x=Math.PI/2;
-  for(let k=0;k<6;k++){let a=k*Math.PI/3;box(group,.045,.014,.012,metal,x+Math.cos(a)*wr*.43,wr+.01+Math.sin(a)*wr*.43,z+(z>0?.084:-.084));}
+  // Rotate the full wheel assembly around its axle (Z), not the entire car.
+  const assembly=new THREE.Group();assembly.position.set(x,wr+.01,z);group.add(assembly);
+  const wheel=cyl(assembly,wr,wr,.15,rubber,0,0,0);wheel.rotation.x=Math.PI/2;
+  const side=cyl(assembly,wr*.64,wr*.64,.154,mat(t.accent,.62,.28),0,0,0);side.rotation.x=Math.PI/2;
+  cyl(assembly,wr*.21,wr*.21,.16,silver,0,0,0).rotation.x=Math.PI/2;
+  // Visible radial spokes make the rotation easy to read at low speeds.
+  for(let k=0;k<6;k++){const a=k*Math.PI/3;const spoke=box(assembly,wr*.53,.019,.022,metal,Math.cos(a)*wr*.39,Math.sin(a)*wr*.39,z>0?.086:-.086);spoke.rotation.z=a;}
+  wheelGroups.push(assembly);
  }
  // Contrasting stepped front nose and side fairings
  box(group,.65,.135,.42,body,.36,.30,0);box(group,.27,.10,.26,accent,.78,.26,0);
@@ -102,8 +106,8 @@ function buildCar(){const group=new THREE.Group();const t=TYPES[cfg.type],ti=cho
  if(d.mass){const n=d.mass>=12?4:2;for(let i=0;i<n;i++){const xx=n===2?(cfg.parts.damper===2?-.56:.52):i<2?.52:-.56;const zz=i%2?-.29:.29;box(group,.09,.1,.11,gold,xx,.20,zz);cyl(group,.021,.021,.06,metal,xx,.28,zz)}}
  if(b.mass){const xx=cfg.parts.brake===2?-.88:.88;box(group,.20,.044,.70,mat(0xe88142),xx,.075,0);if(cfg.parts.brake>=3)box(group,.18,.04,.7,mat(0xe88142),-.88,.075,0)}
  if(m.rpm>1.2)box(group,.18,.03,.27,gold,-.18,.62,0);
- group.position.y=.19;return group;}
-function refreshCar(){persist();renderUI();if(car){carContainer.remove(car);car.traverse(o=>{if(o.isMesh){o.geometry?.dispose();if(o.material&&!([metal,black,rubber,carbon,silver,gold].includes(o.material)))o.material.dispose()}})}car=buildCar();carContainer.add(car);if(screen==='test'){setScreen('garage')}}
+ return group;}
+function refreshCar(){persist();renderUI();if(car){carContainer.remove(car);car.traverse(o=>{if(o.isMesh){o.geometry?.dispose();if(o.material&&!([metal,black,rubber,carbon,silver,gold].includes(o.material)))o.material.dispose()}})}car=buildCar();carContainer.add(car);carContainer.position.y=screen==='test'?TRACK_CAR_Y:GARAGE_CAR_Y;if(screen==='test'){setScreen('garage')}}
 // Smooth closed oval in X/Z plane, with curvature-based corner dynamics.
 const curveRadius=3.2,straightHalf=4.2,ovalLength=4*straightHalf+2*Math.PI*curveRadius;
 function oval(u,r=curveRadius){let dist=((u%1)+1)%1*ovalLength;const straight=straightHalf*2, arc=Math.PI*curveRadius;
@@ -120,10 +124,31 @@ for(let i=0;i<34;i++){const p=oval(i/34,4.12);const pole=cyl(trackGroup,.025,.02
 for(let i=0;i<5;i++){const p=oval(.05+i*.005,3.1);box(trackGroup,.035,.012,1.65,i%2?black:silver,p.x,.10,p.z)}
 const finish=box(trackGroup,.16,.14,1.9,mat(0xe2d2b7,.0,.9),-3.7,.13,-3.2);finish.rotation.y=0;
 const trackSign=box(trackGroup,3,.05,.85,mat(0x1a3442),0,.01,0);
+// Match the scaled tires to the actual running surface and podium top.
+const TRACK_CAR_Y=.04-.9*.01;
+const GARAGE_CAR_Y=.185-.9*.01;
 // UI and view transformations
-function setView(view){if(screen==='test'){camera.position.set(0,14,17);controls.target.set(0,0,0);camera.fov=43;}else{camera.fov=38;controls.target.set(0,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,0,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
-function placeCar(u){const p=oval(u);carContainer.position.set(p.x,0,p.z);carContainer.rotation.set(0,-p.ang,0)}
+function fitTrackCamera(){
+ // A fixed camera distance cropped the horizontal edges, especially on tall phones.
+ // Fit the complete course using the live canvas aspect ratio and projected extents.
+ const rect=renderer.domElement.getBoundingClientRect();
+ const aspect=Math.max(.25,rect.width/Math.max(1,rect.height));
+ camera.fov=48;camera.updateProjectionMatrix();
+ const halfW=8.65,halfD=4.75;
+ const direction=new THREE.Vector3(0,1.35,.65).normalize();
+ const projectedVertical=halfD*direction.y+.35*direction.z;
+ const halfTan=Math.tan(THREE.MathUtils.degToRad(camera.fov*.5));
+ const requiredDistance=Math.max((halfW)/(halfTan*aspect),projectedVertical/halfTan)*1.20;
+ controls.target.set(0,0,0);
+ camera.position.copy(direction.multiplyScalar(requiredDistance));
+ controls.minDistance=3;
+ controls.maxDistance=Math.max(110,requiredDistance*2.5);
+ camera.updateProjectionMatrix();
+}
+function setView(view){if(screen==='test'){fitTrackCamera();}
+else{camera.fov=38;controls.target.set(0,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));}camera.updateProjectionMatrix();controls.update();}
+function setScreen(mode){screen=mode;const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0)}setView('angle');updateBest()}
+function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y,p.z);carContainer.rotation.set(0,-p.ang,0)}
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.failed?'アウト':r.done?'完走':r.active?'走行中':'待機中';$('progressBar').style.width=(r.distance/ovalLength*100).toFixed(1)+'%'}
 function startRace(){const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,logs:[],risk:0};$('resultTime').textContent='--.-- s';$('delta').textContent='計測中';$('runLog').textContent='スタート！ セッティングの違いを検証しましょう。';placeCar(0);displayRace()}
 function stopRace(failed){const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;const key='oval';const before=records[key]?.time;
@@ -148,9 +173,10 @@ function raceStep(dt){if(!race?.active)return;const r=race,p=r.p;let pos=oval(r.
 }
 function updateBest(){const b=records.oval;$('bestRecord').textContent=b?`${b.time.toFixed(2)} 秒 / ${b.type} / ${b.max.toFixed(1)} km/h\n${GROUPS.map(g=>`${g.label}：${g.parts[b.parts[g.key]??0]?.name??'未設定'}`).join(' ｜ ')}`:'まだ記録がありません'}
 $('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
-let last=performance.now(),accum=0;const fixed=1/120;
+let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
- if(screen==='garage'&&car){carContainer.position.set(0,0,0);carContainer.rotation.y=0}
+ const speed=screen==='test'&&race?race.v:0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
+ if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
  controls.update();renderer.render(scene,camera)}
-function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix()}}
+function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
 new ResizeObserver(resize).observe($('scene'));window.addEventListener('resize',resize);renderUI();refreshCar();setScreen('garage');resize();requestAnimationFrame(animate);
