@@ -14,37 +14,38 @@ const BASE = {
 };
 
 const C=(o)=>Object.freeze({...BASE,...o});
+const G=(bits)=>[...bits].map(bit=>bit==='1');
 export const TOUGE_CAR_DESIGNS=Object.freeze([
  C({color:'#ff5252',lift:.2277,wheelSizeFront:.41,wheelSizeRear:.41,wheelTread:-.129,tireWidth:.3596,rimDepth:131,
    headlights:'Custom',tailLights:'Single_Bar',mufflerType:'Dual',bumperColor:'#ff5252',frontGrillStyle:'slats',
    bodyRoundness:23,bumperRoundness:55,doorHandleFrontX:-.16,doorHandleFrontY:-.14,doorHandleRearY:-.15,
-   doorHandleWidth:.27,doorHandleDepth:.06,tailLightOffsetY:.01,
+   doorHandleWidth:.27,doorHandleDepth:.06,tailLightOffsetY:.01,customTailLightGrid:G('0000000000000000001111111111111111111111011111110000000000000000'),
    customHeadlightShape:[{x:-.232,y:.1427},{x:.2164,y:.0797},{x:.2607,y:-.1843},{x:-.238,y:-.1691}]}),
  C({color:'#00cc00',roofWidth:1.5,totalLength:4.739,lift:.2739,noseSlant:.284,roofH:1.408,roofL:1.211,rSlant:1.2255,
    trunkH:.7684,wheelSizeFront:.43,wheelSizeRear:.43,wheelTread:-.131,tireWidth:.3208,rimDepth:138,headlights:'Custom',
    tailLights:'Round',mufflerType:'Dual',bumperF:false,bumperColor:'#00cc00',frontGrillStyle:'slats',garnishColor:'#1be600',
    bodyRoundness:22,bumperRoundness:25,doorHandleFrontX:-.32,doorHandleFrontY:-.19,doorHandleRearX:-.48,
-   doorHandleWidth:.24,doorHandleDepth:.06,customHeadlightShape:[{x:-.2148,y:.1555},{x:.2784,y:.0525},{x:.307,y:-.1169},{x:-.233,y:-.1126}]}),
+   doorHandleWidth:.24,doorHandleDepth:.06,customTailLightGrid:G('0000000000000000011111100111111001111110011111100000000000000000'),customHeadlightShape:[{x:-.2148,y:.1555},{x:.2784,y:.0525},{x:.307,y:-.1169},{x:-.233,y:-.1126}]}),
  C({color:'#cccc00',totalLength:5.5195,lift:.3564,noseSlant:.108,hoodL:1.1475,roofL:.994,rSlant:.1,trunkH:.7684,
    wheelSizeFront:.5,wheelSizeRear:.5,wheelTread:-.034,tireWidth:.374,wheelDesign:'Dish',headlights:'Round_2',tailLights:'Dual',
    bumperRoundness:11,grillColor:'#595959',rearGarnish:false,bodyRoundness:7,doorHandleFrontX:-.28,doorHandleFrontY:-.27,
-   doorHandleWidth:.25,doorHandleDepth:.06}),
+   doorHandleWidth:.25,doorHandleDepth:.06,customTailLightGrid:G('0000000000000000011111100111111001111110011111100000000000000000')}),
  C({color:'#ffffff',roofWidth:1.725,totalLength:5.2255,lift:.2519,noseSlant:.083,hoodL:1.545,roofL:1.61,rSlant:.703,
    trunkH:.7973,wheelSizeFront:.45,wheelSizeRear:.45,wheelTread:-.153,wheelColor:'#c2c2c2',tireWidth:.3716,rimDepth:138,
    wheelDesign:'Twist_7',headlights:'Custom',tailLights:'Custom',bumperColor:'#a4a2a2',grillColor:'#545454',
    garnishColor:'#b5b5b5',bodyRoundness:3,bumperRoundness:26,doorHandleFrontX:-.2,doorHandleFrontY:-.23,
-   doorHandleWidth:.25,doorHandleDepth:.065,tailLightOffsetY:.03,
+   doorHandleWidth:.25,doorHandleDepth:.065,tailLightOffsetY:.03,customTailLightGrid:G('0000000000000000000000001101111111011111110111110000000000000000'),
    customHeadlightShape:[{x:-.2293,y:.1875},{x:.2107,y:.1763},{x:.24,y:-.18},{x:-.24,y:-.18}]}),
  C({color:'#eeeeee',lift:.2739,noseSlant:.108,hoodL:.5,roofL:3.549,rSlant:.1938,wheelSizeFront:.45,wheelSizeRear:.45,
    wheelTread:-.126,tireWidth:.3268,headlights:'Custom',tailLights:'Custom',bumperR:false,grillColor:'#919191',
    garnishColor:'#ffffff',doorHandleFrontX:.8,doorHandleFrontY:-.17,doorHandleRearX:.8,doorHandleRearY:-.16,
-   doorHandleWidth:.23,doorHandleDepth:.06,tailLightOffsetX:.01,tailLightOffsetY:.15,
+   doorHandleWidth:.23,doorHandleDepth:.06,tailLightOffsetX:.01,tailLightOffsetY:.15,customTailLightGrid:G('0000000100000111000001110000011100000111000001110000011100000111'),
    customHeadlightShape:[{x:-.2433,y:.1557},{x:.2113,y:.1053},{x:.2127,y:-.0664},{x:-.238,y:-.0664}]}),
  C({color:'#f7d52b',width:2.2198,roofWidth:1.65,totalLength:5.061,lift:.1881,noseH:.5786,roofH:1.282,roofL:1.3475,
    rSlant:.608,trunkH:.8347,wheelSizeFront:.38,wheelSizeRear:.38,wheelTread:-.16,tireWidth:.42,rimDepth:145,
    headlights:'Custom',tailLights:'Vertical_Slim',mufflerType:'Dual',bumperColor:'#f7d52b',frontGrillStyle:'slats',
    grillColor:'#000000',bodyRoundness:26,bumperRoundness:50,doorCount:'4door',doorHandleFrontX:.35,doorHandleFrontY:-.11,
-   doorHandleRearX:-.36,doorHandleRearY:-.11,doorHandleWidth:.23,doorHandleDepth:.065,
+   doorHandleRearX:-.36,doorHandleRearY:-.11,doorHandleWidth:.23,doorHandleDepth:.065,customTailLightGrid:G('0000000000000000111011111110111111101111111011110000000000000000'),
    customHeadlightShape:[{x:-.24,y:.18},{x:.2227,y:.0997},{x:.244,y:-.0645},{x:-.236,y:-.0645}]})
 ]);
 
