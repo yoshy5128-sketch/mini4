@@ -146,7 +146,38 @@ $('normalSet').onclick=()=>{
 $('machines').addEventListener('click',e=>{let b=e.target.closest('[data-type]');if(b){cfg.type=Number(b.dataset.type);refreshCar()}});
 $('partTabs').addEventListener('click',e=>{let b=e.target.closest('[data-group]');if(b){activeGroup=b.dataset.group;renderUI()}});
 $('parts').addEventListener('click',e=>{let b=e.target.closest('[data-part]');if(b){cfg.parts[activeGroup]=Number(b.dataset.part);refreshCar()}});
-$('saveSetup').onclick=()=>{persist();$('saveSetup').textContent='✓ 保存しました';setTimeout(()=>$('saveSetup').textContent='このセッティングを保存',1200)};
+// Three independent named presets. The current working setup is persisted separately.
+const SET_SLOTS_KEY='mini4wd_lab_tuning_slots_v1';
+const setSlots=getStorage(SET_SLOTS_KEY,[null,null,null]);
+while(setSlots.length<3)setSlots.push(null);
+const slotNode=$('setSlots');
+function renderSetSlots(message=''){
+ slotNode.innerHTML=setSlots.slice(0,3).map((preset,i)=>{
+  const title=preset?`${TYPES[preset.type]?.label||'TYPE'} / ${GROUPS.length}種`:'未保存';
+  return `<div class="setSlot"><div class="setSlotHead"><strong>SET${i+1}</strong><span>${title}</span></div><div class="setSlotButtons"><button type="button" data-set-action="save" data-set-index="${i}">保存</button><button type="button" data-set-action="load" data-set-index="${i}" ${preset?'':'disabled'}>読込</button></div></div>`;
+ }).join('');
+ $('slotMessage').textContent=message||'保存：現在のセッティングを登録 ／ 読込：保存内容に切替';
+}
+slotNode.addEventListener('click',event=>{
+ const button=event.target.closest('button[data-set-action]');if(!button)return;
+ const i=Number(button.dataset.setIndex);if(!Number.isInteger(i)||i<0||i>2)return;
+ if(button.dataset.setAction==='save'){
+  if(setSlots[i]&&!window.confirm(`SET${i+1}を現在のセッティングで上書きしますか？`))return;
+  setSlots[i]={type:cfg.type,parts:{...cfg.parts},fine:{...cfg.fine}};
+  try{localStorage.setItem(SET_SLOTS_KEY,JSON.stringify(setSlots))}catch(err){renderSetSlots('保存できませんでした。ブラウザの保存領域をご確認ください。');return;}
+  renderSetSlots(`SET${i+1}に保存しました`);
+ }else{
+  const preset=setSlots[i];if(!preset)return;
+  cfg.type=Number.isInteger(preset.type)&&preset.type>=0&&preset.type<TYPES.length?preset.type:0;
+  cfg.parts={...defaults,...preset.parts};
+  for(const group of GROUPS){let idx=cfg.parts[group.key];if(!Number.isInteger(idx)||idx<0||idx>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
+  cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,motorTune:0,...preset.fine};
+  for(const [key,[lo,hi]] of Object.entries(FINE_RANGES))cfg.fine[key]=Math.max(lo,Math.min(hi,Math.round(Number(cfg.fine[key])||0)));
+  refreshCar();
+  renderSetSlots(`SET${i+1}を読み込みました`);
+ }
+});
+renderSetSlots();
 
 // Scene / camera / lighting
 const renderer=new THREE.WebGLRenderer({canvas:$('scene'),antialias:true,alpha:false,powerPreference:'high-performance'});
