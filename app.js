@@ -65,18 +65,34 @@ function miniLineSVG(series,{min=0,max=100,width=320,height=150,xlabels=true}={}
  const plots=series.map(a=>`<polyline fill="none" stroke="${a.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="${a.points.map((v,i)=>`${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ')}"/>`).join('');
  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="性能変化グラフ" preserveAspectRatio="none">${grid}${plots}${xlabels?`<text x="${width/2}" y="${height-3}" font-size="9" text-anchor="middle" fill="#b6cbd8">経過 / 周回 →</text>`:''}</svg>`;
 }
+function estimatedDurability(){
+ const m=choose('motor'),bat=choose('battery'),ti=choose('tire');
+ const output=1+cfg.fine.motorTune*.06;
+ // This is a comparative endurance score; it deliberately follows the same
+ // heat/capacity/wear directions as the race consumption model.
+ const cell=bat.capacity/Math.max(.55,bat.sag);
+ const motor=m.durability/(Math.max(.55,m.heat)*Math.pow(Math.max(.7,output),1.3));
+ const tire=ti.grip>1.05?.90:1.05;
+ return Math.max(1,Math.min(100,Math.round(66*Math.pow(cell,.40)*Math.pow(motor,.48)*tire)));
+}
 function renderTuningCharts(){
  const target=$('tuningCharts');if(!target)return;
- const m=choose('motor'),bat=choose('battery'),p=physics(),scores=score(p);
- // Predicted curves are approximate relative indicators, not measured field data.
+ const m=choose('motor');
  const consumption=(a,b)=>Array.from({length:13},(_,i)=>Math.max(0,100-i*7.1*a/b));
- const performance=[['最高速',scores.speed],['加速',scores.accel],['コーナー',scores.corner],['安定性',scores.stability],['耐久',Math.round(Math.min(100,75*m.durability*bat.capacity/Math.max(.7,m.heat)))]];
- const perfHTML=performance.map(([label,n])=>`<div class="compareRow"><span>${label}</span><div class="compareTrack"><div style="width:${n}%"></div></div><b>${n}</b></div>`).join('');
- const batteries=[{name:'高出力',c:'#f2a768',v:GROUPS.find(g=>g.key==='battery').parts[0]},{name:'バランス',c:'#58d6fa',v:GROUPS.find(g=>g.key==='battery').parts[1]},{name:'大容量',c:'#74dfab',v:GROUPS.find(g=>g.key==='battery').parts[2]}];
- const curves=batteries.map(v=>({color:v.c,points:consumption(v.v.sag*m.heat,v.v.capacity)}));
- const heatCurve=Array.from({length:13},(_,i)=>Math.min(125,25+80*(1-Math.exp(-i*.19*m.heat*(1+cfg.fine.motorTune*.13)))));
- target.innerHTML=`<div class="chartTitle">マシン総合性能（相対値）</div>${perfHTML}<div class="chartTitle">電池3タイプの残量予測 <small>同一負荷での比較</small></div>${miniLineSVG(curves)}<div class="chartLegend">${batteries.map(v=>`<span style="color:${v.c}">● ${v.name}</span>`).join('')}</div><div class="chartTitle">選択モーターの温度予測</div>${miniLineSVG([{color:'#f5a46a',points:heatCurve}],{max:125})}<div class="chartNote">${m.name} / 発熱係数 ${m.heat.toFixed(2)} / 耐久係数 ${m.durability.toFixed(2)}。予測は比較用のモデルです。</div>`;
+ if(activeGroup==='battery'){
+  const batteries=[{name:'高出力',c:'#f2a768',v:GROUPS.find(g=>g.key==='battery').parts[0]},{name:'バランス',c:'#58d6fa',v:GROUPS.find(g=>g.key==='battery').parts[1]},{name:'大容量',c:'#74dfab',v:GROUPS.find(g=>g.key==='battery').parts[2]}];
+  const curves=batteries.map(v=>({color:v.c,points:consumption(v.v.sag*m.heat,v.v.capacity)}));
+  target.innerHTML=`<div class="chartTitle">電池3タイプ・残量予測</div>${miniLineSVG(curves,{height:105})}<div class="chartLegend">${batteries.map(v=>`<span style="color:${v.c}">● ${v.name}</span>`).join('')}</div><div class="chartNote">装着：${choose('battery').name} / 同じ負荷で比較した相対予測</div>`;
+ }else if(activeGroup==='motor'){
+  const heatCurve=Array.from({length:13},(_,i)=>Math.min(125,25+80*(1-Math.exp(-i*.19*m.heat*(1+cfg.fine.motorTune*.13)))));
+  const lifeCurve=Array.from({length:13},(_,i)=>Math.max(0,100-i*4.1*m.heat/Math.max(.5,m.durability)*(1+cfg.fine.motorTune*.13)));
+  target.innerHTML=`<div class="chartTitle">選択モーター・温度予測</div>${miniLineSVG([{color:'#f5a46a',points:heatCurve}],{min:0,max:125,height:100})}<div class="chartTitle">モーター寿命予測</div>${miniLineSVG([{color:'#b8a4ed',points:lifeCurve}],{height:100})}<div class="chartNote">${m.name} / 発熱×${m.heat.toFixed(2)}・耐久×${m.durability.toFixed(2)}（比較用モデル）</div>`;
+ }else{
+  target.innerHTML='';
+ }
+ target.classList.toggle('hidden',!target.innerHTML);
 }
+
 function snapshotLap(r,lapTime){
  r.telemetry.push({lap:r.laps,time:lapTime,battery:r.battery,tire:r.tire,temp:r.motorTemp,health:r.motorHealth});
  if(r.telemetry.length>150)r.telemetry.shift();
@@ -93,7 +109,7 @@ function persist(){localStorage.setItem(settingsKey,JSON.stringify(cfg))}
 function renderUI(){ $('machines').innerHTML=TYPES.map((t,i)=>`<button class="pick ${cfg.type===i?'active':''}" data-type="${i}">${t.label}<small>${t.short}</small></button>`).join('');
  $('partTabs').innerHTML=GROUPS.map(g=>`<button class="partTab ${g.key===activeGroup?'active':''}" data-group="${g.key}">${g.label}</button>`).join('');
  const group=GROUPS.find(x=>x.key===activeGroup);$('parts').innerHTML=group.parts.map((p,i)=>`<button class="option ${cfg.parts[group.key]===i?'active':''}" data-part="${i}"><div><strong>${p.name}</strong><br><span>${p.mass>0?'+':''}${p.mass}g / ${group.key==='motor'?`回転×${p.rpm} / 熱×${p.heat}`:group.key==='battery'?`出力×${p.voltage} / 容量×${p.capacity}`:group.key==='gear'?`比率 ${p.ratio}:1`:group.key==='tire'?`${p.diam}mm`:group.key==='roller'?`${p.diam}mm`:group.key==='damper'?`安定+${Math.round(p.stability*100)}%`:'抵抗係数 '+p.drag}</span></div>${cfg.parts[group.key]===i?'<span class="chip">装着中</span>':''}</button>`).join('');$('partInfo').textContent=group.info;
- const p=physics(),s=score(p);renderTuningCharts();$('statRows').innerHTML=[['最高速',s.speed],['加速',s.accel],['コーナー',s.corner],['安定性',s.stability]].map(([name,val])=>`<div class="stat"><span>${name}</span><div class="bar"><div class="fill" style="width:${val}%"></div></div><strong>${val}</strong></div>`).join('');
+ const p=physics(),s=score(p);renderTuningCharts();$('statRows').innerHTML=[['最高速',s.speed],['加速',s.accel],['コーナー',s.corner],['安定性',s.stability],['耐久',estimatedDurability()]].map(([name,val])=>`<div class="stat"><span>${name}</span><div class="bar"><div class="fill" style="width:${val}%"></div></div><strong>${val}</strong></div>`).join('');
  $('viewStatus').innerHTML=`<strong>${TYPES[cfg.type].name}</strong><br>総重量 ${p.mass} g<br>理論最高速 ${(p.maxSpeed*3.6).toFixed(1)} km/h<br>全パーツ無料`;renderFine();}
 const FINE_CONTROLS=[
  {key:'rollerHeight',label:'ローラー高さ',unit:'mm',scale:2,desc:'低いほどコーナーの安定性が増す傾向'},
