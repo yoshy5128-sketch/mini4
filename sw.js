@@ -1,8 +1,8 @@
 /* MINI 4WD LAB: increment APP_VERSION in every subsequent release. */
-const APP_VERSION = '0.5.2';
+const APP_VERSION = '0.5.3';
 const CACHE_PREFIX = 'mini4wd-lab-';
 const APP_CACHE = CACHE_PREFIX + APP_VERSION;
-const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './arena_background.jpg', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);

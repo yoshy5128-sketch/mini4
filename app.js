@@ -21,10 +21,20 @@ const GROUPS=[
   {name:'樹脂ローラー 13mm',friction:1,stability:.90,diam:13,mass:0},{name:'樹脂ローラー 19mm',friction:1.06,stability:1.09,diam:19,mass:3},{name:'アルミローラー 13mm',friction:.81,stability:1.01,diam:13,mass:5},{name:'ベアリング 13mm',friction:.57,stability:1.02,diam:13,mass:7},{name:'ベアリング 19mm',friction:.66,stability:1.25,diam:19,mass:10}]},
  {key:'damper',label:'ダンパー',info:'マスダンパーは重量と引き換えに着地・コーナー安定性を向上させます。',parts:[
   {name:'装着なし',mass:0,stability:0,landing:0},{name:'軽量フロント',mass:5,stability:.06,landing:.12},{name:'軽量リア',mass:5,stability:.08,landing:.1},{name:'前後バランス',mass:12,stability:.16,landing:.21},{name:'ヘビーセット',mass:22,stability:.27,landing:.3}]},
+ {key:'stay',label:'ステー',info:'特別パーツ（テスト中は無料）。カーボン素材は軽量で剛性が高い一方、取り付け方により衝撃を逃がしにくくなります。',parts:[
+  {name:'標準FRPステー',mass:0,rigidity:1,landing:1,tag:'標準'},
+  {name:'軽量カーボンステー',mass:-5,rigidity:1.10,landing:.99,tag:'特別'},
+  {name:'強化カーボンステー',mass:-3,rigidity:1.20,landing:.94,tag:'特別'},
+  {name:'超軽量カーボンステー',mass:-8,rigidity:.94,landing:.90,tag:'特別'}]},
+ {key:'bodykit',label:'軽量ボディ',info:'特別パーツ（テスト中は無料）。肉抜きは加速に有利ですが、剛性や着地安定性が下がるためコースごとに選択してください。',parts:[
+  {name:'ノーマルボディ',mass:0,drag:1,rigidity:1,landing:1,cut:0,tag:'標準'},
+  {name:'軽量ボディキット',mass:-7,drag:.98,rigidity:.97,landing:.98,cut:1,tag:'特別'},
+  {name:'ボディ肉抜き加工',mass:-11,drag:1.04,rigidity:.87,landing:.88,cut:2,tag:'特別'},
+  {name:'超軽量レースボディ',mass:-15,drag:.95,rigidity:.82,landing:.83,cut:3,tag:'特別'}]},
  {key:'brake',label:'ブレーキ',info:'ブレーキは立体コース向け。今回の平面オーバルでは重さとわずかな接触抵抗だけが影響します。',parts:[
   {name:'ブレーキなし',mass:0,drag:0},{name:'薄型フロント',mass:2,drag:.005},{name:'薄型リア',mass:2,drag:.004},{name:'前後セッティング',mass:5,drag:.009},{name:'強力ブレーキ',mass:8,drag:.018}]}
 ];
-const defaults={motor:0,battery:1,gear:2,tire:2,roller:0,damper:0,brake:0};
+const defaults={motor:0,battery:1,gear:2,tire:2,roller:0,damper:0,brake:0,stay:0,bodykit:0};
 const settingsKey='mini4wd_lab_v01_settings';const recordsKey='mini4wd_lab_v02_records'; // Physics changed: keep setups, separate incompatible time records.
 function getStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
 let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
@@ -42,19 +52,19 @@ const RACE_PLAYBACK_RATE=4.0;
 // changing animation playback speed. These are fictional calibration values.
 function physics(){
  const t=TYPES[cfg.type],m=choose('motor'),g=choose('gear'),ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake');
- const batteryPart=choose('battery');const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass+batteryPart.mass;const fine=cfg.fine;
+ const batteryPart=choose('battery'),stay=choose('stay'),bodykit=choose('bodykit');const mass=t.mass+m.mass+g.mass+ti.mass+r.mass+d.mass+b.mass+batteryPart.mass+stay.mass+bodykit.mass;const fine=cfg.fine;
  const wheel=ti.diam/26, ratio=g.ratio;
  const tune=1+fine.motorTune*.032;
- const maxSpeed=12.3*m.rpm*tune*batteryPart.voltage*wheel*(4/ratio)/Math.sqrt(t.drag);
+ const maxSpeed=12.3*m.rpm*tune*batteryPart.voltage*wheel*(4/ratio)/Math.sqrt(t.drag*bodykit.drag);
  const acceleration=11.5*m.torque*t.torque*tune*batteryPart.voltage*(ratio/4)/wheel*(124/mass);
  const grip=ti.grip*t.grip;
- const stability=t.stability*r.stability*(1+d.stability)*Math.pow(124/mass,.15)*(1+fine.rollerSpread*.036-fine.rollerHeight*.032+(d.mass?(.018*Math.abs(fine.damperBias))*(-1):0));
+ const stability=t.stability*r.stability*stay.rigidity*bodykit.rigidity*(1+d.stability)*Math.pow(124/mass,.15)*(1+fine.rollerSpread*.036-fine.rollerHeight*.032+(d.mass?(.018*Math.abs(fine.damperBias))*(-1):0));
  // A higher supported lateral load permits faster turns, but weighs more.
  const cornerLimit=9.2*Math.pow(TRACK_SCALE,.25)*Math.sqrt(Math.max(.35,grip*stability))*(1+.025*(r.diam-13)/6); // Spread and roller height alter the effective stability.
  const cornerFriction=.36*r.friction+Math.max(0,b.drag)*2.5+Math.max(0,fine.rollerSpread)*.045;
  const brakePower=9+4*Math.max(0,grip-1)+3*Math.max(0,stability-1)+(b.mass?(4-fine.brakeHeight)*.35:0);
  return {mass,maxSpeed,acceleration,grip,stability,cornerLimit,cornerFriction,brakePower,
-  rollingLoss:.14+.09*r.friction+(b.mass?(4-fine.brakeHeight)*.035:0),airDrag:.0045*t.drag,landing:(.5+d.landing)*stability*(1+(d.mass?fine.damperBias*.045:0)),fine:{...fine}};
+  rollingLoss:.14+.09*r.friction+(b.mass?(4-fine.brakeHeight)*.035:0),airDrag:.0045*t.drag,landing:(.5+d.landing)*stability*stay.landing*bodykit.landing*(1+(d.mass?fine.damperBias*.045:0)),fine:{...fine}};
 }
 function score(p){return {speed:Math.round(Math.min(100,p.maxSpeed/18.8*100)),accel:Math.round(Math.min(100,p.acceleration/21*100)),corner:Math.round(Math.min(100,p.cornerLimit/15*100)),stability:Math.round(Math.min(100,(p.stability*.9+p.landing*.1)/1.7*100))}}
 function miniLineSVG(series,{min=0,max=100,width=320,height=150,xlabels=true}={}){
@@ -72,8 +82,8 @@ function estimatedDurability(){
  // heat/capacity/wear directions as the race consumption model.
  const cell=bat.capacity/Math.max(.55,bat.sag);
  const motor=m.durability/(Math.max(.55,m.heat)*Math.pow(Math.max(.7,output),1.3));
- const tire=ti.grip>1.05?.90:1.05;
- return Math.max(1,Math.min(100,Math.round(66*Math.pow(cell,.40)*Math.pow(motor,.48)*tire)));
+ const tire=ti.grip>1.05?.90:1.05;const structure=choose('stay').rigidity*choose('bodykit').rigidity;
+ return Math.max(1,Math.min(100,Math.round(66*Math.pow(cell,.40)*Math.pow(motor,.48)*tire*Math.pow(structure,.35))));
 }
 function renderTuningCharts(){
  const target=$('tuningCharts');if(!target)return;
@@ -108,7 +118,7 @@ function renderLapAnalysis(r=race){
 function persist(){localStorage.setItem(settingsKey,JSON.stringify(cfg))}
 function renderUI(){ $('machines').innerHTML=TYPES.map((t,i)=>`<button class="pick ${cfg.type===i?'active':''}" data-type="${i}">${t.label}<small>${t.short}</small></button>`).join('');
  $('partTabs').innerHTML=GROUPS.map(g=>`<button class="partTab ${g.key===activeGroup?'active':''}" data-group="${g.key}">${g.label}</button>`).join('');
- const group=GROUPS.find(x=>x.key===activeGroup);$('parts').innerHTML=group.parts.map((p,i)=>`<button class="option ${cfg.parts[group.key]===i?'active':''}" data-part="${i}"><div><strong>${p.name}</strong><br><span>${p.mass>0?'+':''}${p.mass}g / ${group.key==='motor'?`回転×${p.rpm} / 熱×${p.heat}`:group.key==='battery'?`出力×${p.voltage} / 容量×${p.capacity}`:group.key==='gear'?`比率 ${p.ratio}:1`:group.key==='tire'?`${p.diam}mm`:group.key==='roller'?`${p.diam}mm`:group.key==='damper'?`安定+${Math.round(p.stability*100)}%`:'抵抗係数 '+p.drag}</span></div>${cfg.parts[group.key]===i?'<span class="chip">装着中</span>':''}</button>`).join('');$('partInfo').textContent=group.info;
+ const group=GROUPS.find(x=>x.key===activeGroup);$('parts').innerHTML=group.parts.map((p,i)=>`<button class="option ${cfg.parts[group.key]===i?'active':''}" data-part="${i}"><div><strong>${p.name}</strong><br><span>${p.mass>0?'+':''}${p.mass}g / ${group.key==='motor'?`回転×${p.rpm} / 熱×${p.heat}`:group.key==='battery'?`出力×${p.voltage} / 容量×${p.capacity}`:group.key==='gear'?`比率 ${p.ratio}:1`:group.key==='tire'?`${p.diam}mm`:group.key==='roller'?`${p.diam}mm`:group.key==='damper'?`安定+${Math.round(p.stability*100)}%`:group.key==='stay'?`剛性×${p.rigidity.toFixed(2)}`:group.key==='bodykit'?`剛性×${p.rigidity.toFixed(2)} / 空気抵抗×${p.drag.toFixed(2)}`:'抵抗係数 '+p.drag}</span></div>${cfg.parts[group.key]===i?'<span class="chip">装着中</span>':p.tag==='特別'?'<span class="chip">特別・無料</span>':''}</button>`).join('');$('partInfo').textContent=group.info;
  const p=physics(),s=score(p);renderTuningCharts();$('statRows').innerHTML=[['最高速',s.speed],['加速',s.accel],['コーナー',s.corner],['安定性',s.stability],['耐久',estimatedDurability()]].map(([name,val])=>`<div class="stat"><span>${name}</span><div class="bar"><div class="fill" style="width:${val}%"></div></div><strong>${val}</strong></div>`).join('');
  $('viewStatus').innerHTML=`<strong>${TYPES[cfg.type].name}</strong><br>総重量 ${p.mass} g<br>理論最高速 ${(p.maxSpeed*3.6).toFixed(1)} km/h<br>全パーツ無料`;renderFine();}
 const FINE_CONTROLS=[
@@ -198,7 +208,7 @@ const garageFloor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),mat(0x182733,.
 const podium=new THREE.Mesh(new THREE.CylinderGeometry(1.43,1.53,.17,72),mat(0x263e4b,.62,.32));podium.position.y=.10;podium.receiveShadow=true;garageGroup.add(podium);
 const rim=new THREE.Mesh(new THREE.TorusGeometry(1.42,.026,8,80),new THREE.MeshBasicMaterial({color:0x55d9f2}));rim.rotation.x=Math.PI/2;rim.position.y=.195;garageGroup.add(rim);
 const grid=new THREE.GridHelper(16,28,0x345265,0x213847);grid.position.y=.004;garageGroup.add(grid);
-function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');const body=mat(t.color,.25,.3),accent=mat(t.accent,.32,.34);const scale=0.9;group.scale.setScalar(scale);
+function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');const body=mat(t.color,.25,.3),accent=mat(t.accent,.32,.34),stayPart=choose('stay'),kit=choose('bodykit');const scale=0.9;group.scale.setScalar(scale);
  // Dimensions: local 3D units; nose along positive X. Wheels on both sides.
  box(group,1.35,.105,.58,carbon,0,.20,0);box(group,1.52,.06,.67,black,0,.13,0);
  const wr=ti.diam/26*.165;
@@ -214,13 +224,21 @@ function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[c
  }
  // Contrasting stepped front nose and side fairings
  box(group,.65,.135,.42,body,.36,.30,0);box(group,.27,.10,.26,accent,.78,.26,0);
- box(group,.73,.17,.53,body,-.22,.32,0);box(group,.49,.22,.39,body,-.17,.47,0);
+ box(group,.73,.17*(1-kit.cut*.12),.53,body,-.22,.32,0);box(group,.49,.22*(1-kit.cut*.14),.39,body,-.17,.47,0);
  box(group,.32,.055,.37,accent,-.18,.61,0);
  for(const z of [-.285,.285]){box(group,.92,.075,.095,accent,-.07,.31,z);box(group,.45,.06,.10,body,.45,.29,z)}
  // Body style differences
  if(cfg.type===0){box(group,.19,.035,.68,accent,-.66,.49,0);box(group,.48,.035,.10,body,-.54,.35,0);}
  if(cfg.type===1){box(group,.26,.12,.55,body,-.65,.53,0);box(group,.42,.055,.73,accent,-.64,.62,0);}
  if(cfg.type===2){box(group,.5,.055,.65,accent,-.53,.46,0);box(group,.28,.045,.66,body,.55,.40,0);}
+ // Lightweight body variations are visible in the garage, not only as numbers.
+ if(kit.cut>=1){
+   for(const z of [-.23,.23])box(group,.28,.014,.055,black,-.18,.625-kit.cut*.014,z);
+ }
+ if(kit.cut>=2){
+   for(const x of [-.38,.28])for(const z of [-.25,.25])box(group,.12,.013,.06,black,x,.397-kit.cut*.016,z);
+ }
+ if(kit.cut===3){box(group,.44,.026,.33,accent,.33,.39,0)}
  // Metallic motor and battery detail visible on chassis edges
  box(group,.37,.16,.23,metal,-.39,.16,0);for(const z of [-.21,.21])box(group,.42,.11,.10,gold,.1,.20,z);
  // Front and rear roller units share a single centerline (local Z = 0).
@@ -233,7 +251,7 @@ function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[c
   mount.position.set(x,0,0);group.add(mount);
   // Reinforce the rear stay with a short central brace; no off-axis parts.
   if(side<0) box(mount,.31,.035,.16,carbon,.13,.205+h,0);
-  box(mount,.15,.045,1.10,carbon,0,.22+h,0);
+  box(mount,.15,stayPart.mass<0?.028:.045,1.10,stayPart.mass<0?mat(0x192b31,.28,.56):carbon,0,.22+h,0);
   for(const z of [-.52,.52]){
    cyl(mount,.021,.021,.13,metal,0,.29+h,z);
    const rad=r.diam/13*.078;
@@ -378,7 +396,7 @@ function fitTrackCamera(){
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('cameraBtns').classList.toggle('hidden',testing);$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
+function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y+(courseMode==='technical'?elevation(u):0),p.z);carContainer.rotation.set(0,-p.ang,courseMode==='technical'?Math.atan(roadSlope(u)):0)}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
@@ -461,7 +479,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=courseMode==='technical'?'technical_v042':'oval_3x_v03';
+ const base=courseMode==='technical'?'technical_v053':'oval_3x_v053';
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -711,7 +729,7 @@ $('arenaBackground').addEventListener('change',syncArenaBackdrop);
 $('wearEnabled').addEventListener('change',()=>{if(!race?.active){race=null;updateBest();updateCondition();}});
 $('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;$('stopRun').disabled=!race.loop;}});
 $('stopRun').addEventListener('click',()=>{if(!race?.active)return;const r=race;r.active=false;r.done=true;$('stopRun').disabled=true;$('stateRead').textContent='走行停止';$('delta').textContent=`任意停止：${r.laps}周完了 / 総走行 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`連続試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}。電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃`;updateCondition();});
-$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stopRun').disabled=true;$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stopRun').disabled=true;$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');
 let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;let lastConditionTime=0;
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed*RACE_PLAYBACK_RATE;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
  if(screen==='test'&&race?.crash?.active){updateCrashAnimation(elapsed);displayRace()}
