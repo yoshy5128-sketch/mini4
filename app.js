@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { buildTougeCar } from './touge-cars.js';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
- {id:'S',label:'TYPE S',short:'SPEED',name:'ストリームファルコン',color:0x16a9e1,accent:0xe9f6ff,mass:116,drag:.91,grip:.83,stability:.82,torque:.95},
- {id:'P',label:'TYPE P',short:'POWER',name:'ブレイズバイソン',color:0xe94842,accent:0xffce68,mass:132,drag:1.10,grip:.96,stability:1.06,torque:1.10},
- {id:'B',label:'TYPE B',short:'BALANCE',name:'グランドリンクス',color:0xf0bc48,accent:0x29363d,mass:124,drag:1.02,grip:1.07,stability:1.13,torque:1}
+ {id:'A',label:'TYPE-A',short:'TOUGE RED',name:'峠SIM TYPE-A',color:0xff5252,mass:122,drag:.98,grip:.96,stability:.96,torque:1.00},
+ {id:'B',label:'TYPE-B',short:'TOUGE GREEN',name:'峠SIM TYPE-B',color:0x00cc00,mass:119,drag:.96,grip:.94,stability:.93,torque:1.02},
+ {id:'C',label:'TYPE-C',short:'TOUGE GOLD',name:'峠SIM TYPE-C',color:0xcccc00,mass:130,drag:1.05,grip:1.05,stability:1.07,torque:1.05},
+ {id:'D',label:'TYPE-D',short:'TOUGE WHITE',name:'峠SIM TYPE-D',color:0xffffff,mass:126,drag:1.00,grip:1.03,stability:1.05,torque:.99},
+ {id:'E',label:'TYPE-E',short:'TOUGE WAGON',name:'峠SIM TYPE-E',color:0xeeeeee,mass:134,drag:1.08,grip:1.08,stability:1.12,torque:1.08},
+ {id:'F',label:'TYPE-F',short:'TOUGE YELLOW',name:'峠SIM TYPE-F',color:0xf7d52b,mass:117,drag:.94,grip:.92,stability:.90,torque:.97}
 ];
 // Values are game design parameters, not measurements of real commercial parts.
 const GROUPS=[
@@ -157,6 +161,7 @@ function renderLapAnalysis(r=race){
 }
 function persist(){localStorage.setItem(settingsKey,JSON.stringify(cfg))}
 function renderUI(){ $('machines').innerHTML=TYPES.map((t,i)=>`<button class="pick ${cfg.type===i?'active':''}" data-type="${i}">${t.label}<small>${t.short}</small></button>`).join('');
+ const bodyLink=$('bodyCustomLink');if(bodyLink)bodyLink.href=`./body-custom.html?type=${cfg.type}`;
  $('partTabs').innerHTML=GROUPS.map(g=>`<button class="partTab ${g.key===activeGroup?'active':''}" data-group="${g.key}">${g.label}</button>`).join('');
  const group=GROUPS.find(x=>x.key===activeGroup);$('parts').innerHTML=group.parts.map((p,i)=>`<button class="option ${cfg.parts[group.key]===i?'active':''}" data-part="${i}"><div><strong>${p.name}</strong><br><span>${p.mass>0?'+':''}${p.mass}g / ${group.key==='motor'?`回転×${p.rpm} / 熱×${p.heat}`:group.key==='battery'?`出力×${p.voltage} / 容量×${p.capacity}`:group.key==='gear'?`比率 ${p.ratio}:1`:group.key==='tire'?`${p.diam}mm`:group.key==='roller'?`${p.diam}mm`:group.key==='damper'?`安定+${Math.round(p.stability*100)}%`:group.key==='stay'?`剛性×${p.rigidity.toFixed(2)}`:group.key==='bodykit'?`剛性×${p.rigidity.toFixed(2)} / 空気抵抗×${p.drag.toFixed(2)}`:'抵抗係数 '+p.drag}</span></div>${cfg.parts[group.key]===i?'<span class="chip">装着中</span>':p.tag==='特別'?'<span class="chip">特別・無料</span>':''}</button>`).join('');$('partInfo').textContent=group.info;
  const p=physics(),s=score(p);renderTuningCharts();$('statRows').innerHTML=[['最高速',s.speed],['加速',s.accel],['コーナー',s.corner],['安定性',s.stability],['耐久',estimatedDurability()]].map(([name,val])=>`<div class="stat"><span>${name}</span><div class="bar"><div class="fill" style="width:${val}%"></div></div><strong>${val}</strong></div>`).join('');
@@ -432,7 +437,7 @@ function buildSpeedShell(group,kit){
  }
 }
 
-function buildCar(){
+function buildLegacyCar(){
  wheelGroups=[];
  const group=new THREE.Group();
  const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');
@@ -554,6 +559,57 @@ function buildCar(){
  if(m.rpm>1.2)box(group,.18,.03,.27,gold,-.18,.60,0);
  return group;
 }
+
+function buildCar(){
+ wheelGroups=[];
+ const group=buildTougeCar(cfg.type);
+ wheelGroups=group.userData.wheelGroups||[];
+ const r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor'),stay=choose('stay');
+ const halfL=group.userData.bodyHalfLength||.88;
+ const halfW=Math.max(.39,group.userData.bodyHalfWidth||.38);
+ const deckMat=mat(0x151c22,.22,.72),stayMat=stay.mass<0?mat(0x22343b,.32,.55):carbon;
+
+ // A slim chassis remains under the transplanted road-car body.
+ box(group,Math.max(1.35,halfL*1.62),.055,Math.max(.56,halfW*1.42),deckMat,0,.075,0);
+ box(group,Math.max(1.46,halfL*1.73),.022,.15,stayMat,0,.108,0);
+
+ const beam=(parent,x1,z1,x2,z2,y,thickness=.038)=>{
+  const dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz);
+  const part=box(parent,len,thickness,.07,stayMat,(x1+x2)/2,y,(z1+z2)/2);
+  part.rotation.y=-Math.atan2(dz,dx);return part;
+ };
+ // Four independent V-stays replace the previous long board across the nose.
+ for(const end of [-1,1]){
+  const x=end*(halfL+.11+cfg.fine.rollerSpread*.026),h=.13+cfg.fine.rollerHeight*.012;
+  const innerX=end*(halfL-.23);
+  for(const side of [-1,1]){
+   const z=side*Math.max(.49,halfW+.12);
+   beam(group,innerX,side*.18,x,z,h,stay.mass<0?.026:.04);
+   box(group,.13,.035,.09,stayMat,x,h,z);
+   cyl(group,.018,.018,.13,metal,x,h+.065,z);
+   const rad=r.diam/13*.071;
+   cyl(group,rad,rad,.055,r.friction<.7?gold:silver,x,h+.145,z);
+   cyl(group,rad*.55,rad*.55,.06,black,x,h+.177,z);
+   tor(group,rad*.72,.007,metal,x,h+.209,z,Math.PI/2);
+   if(end>0){
+    cyl(group,.025,.025,.10,metal,x-.035,h+.20,z);
+    cyl(group,.04,.04,.045,gold,x-.035,h+.275,z);
+   }
+  }
+ }
+ if(d.mass){
+  const count=d.mass>=12?4:2;
+  for(let i=0;i<count;i++){
+   const front=count===2?cfg.parts.damper!==2:i<2;
+   const x=(front?halfL*.56:-halfL*.56)+cfg.fine.damperBias*.055,z=(i%2?-.30:.30);
+   cyl(group,.045,.052,.14,gold,x,.18,z);cyl(group,.014,.014,.08,metal,x,.285,z);
+  }
+ }
+ if(b.mass){const x=cfg.parts.brake===2?-halfL*.92:halfL*.92;box(group,.16,.035,halfW*1.45,mat(0xe88142),x,.035+cfg.fine.brakeHeight*.01,0);if(cfg.parts.brake>=3)box(group,.16,.035,halfW*1.45,mat(0xe88142),-halfL*.92,.035+cfg.fine.brakeHeight*.01,0)}
+ if(m.rpm>1.2)box(group,.18,.025,.26,gold,-.12,.12,0);
+ return group;
+}
+
 function refreshCar(){persist();renderUI();if(car){carContainer.remove(car);car.traverse(o=>{if(o.isMesh){o.geometry?.dispose();if(o.material&&!([metal,black,rubber,carbon,silver,gold].includes(o.material)))o.material.dispose()}})}car=buildCar();carContainer.add(car);carContainer.position.y=screen==='test'?TRACK_CAR_Y:GARAGE_CAR_Y;if(screen==='test'){setScreen('garage')}}
 // Smooth closed oval in X/Z plane, with curvature-based corner dynamics.
 // Ver.0.2.1: 3x the original physical circuit length (not a 3-lap timer).
@@ -898,7 +954,7 @@ function raceStep(dt){
   const damper=choose('damper'), tire=choose('tire');
   const bias=(damper.mass ? cfg.fine.damperBias*.16 : 0)
       +(cfg.parts.damper===1? .14 : cfg.parts.damper===2?-.14:0)
-      +(TYPES[cfg.type].id==='P'?.04:TYPES[cfg.type].id==='S'?-.035:0);
+      +(TYPES[cfg.type].id==='E'?.04:TYPES[cfg.type].id==='F'?-.035:0);
   const damping=Math.min(.82,.14+damper.landing*.9+damper.mass*.009);
   const jumpAt=.655*ovalLength;
   if(!r.air&&!r.jumps&&r.distance>=jumpAt){

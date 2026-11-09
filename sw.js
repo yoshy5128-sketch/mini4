@@ -1,8 +1,8 @@
 /* MINI 4WD LAB: increment APP_VERSION in every subsequent release. */
-const APP_VERSION = '0.6.1';
+const APP_VERSION = '0.7.0';
 const CACHE_PREFIX = 'mini4wd-lab-';
 const APP_CACHE = CACHE_PREFIX + APP_VERSION;
-const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+const SHELL = ['./', './index.html', './app.js', './touge-cars.js', './body-custom.html', './body-custom.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
@@ -48,7 +48,8 @@ self.addEventListener('fetch', event => {
         if (res.ok) (await caches.open(APP_CACHE)).put('./index.html',res.clone());
         return res;
       } catch (_) {
-        return (await caches.match('./index.html')) || Response.error();
+        const fallback=url.pathname.endsWith('/body-custom.html')?'./body-custom.html':'./index.html';
+        return (await caches.match(fallback)) || Response.error();
       }
     })());
     return;
