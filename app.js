@@ -427,7 +427,7 @@ function fitTrackCamera(){
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
+function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'OVAL TEST CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TIME ATTACK':'TUNING GARAGE';$('overHint').textContent=testing?'従来の3倍の距離・1周のラップタイムを計測':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest()}
 function placeCar(u){const p=oval(u);carContainer.position.set(p.x,TRACK_CAR_Y+(courseMode==='technical'?elevation(u):0),p.z);carContainer.rotation.set(0,-p.ang,courseMode==='technical'?Math.atan(roadSlope(u)):0)}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
@@ -565,16 +565,16 @@ function updateCondition(){
  $('conditionDistance').textContent=`累計走行 ${((r?.laps??0)*ovalLength+(r?.distance??0)).toFixed(1)} m`;
  $('conditionNote').textContent=!enabled?'消耗OFF：比較用の一定性能で走行します':r?.active?'消耗・発熱を計算中（再スタートで新品に戻ります）':'走行開始時は新品状態です';
 }
-function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,r.distance/ovalLength*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);updateCondition()}
+function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.active&&playbackPaused?'一時停止':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,r.distance/ovalLength*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);updateCondition()}
 function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,tire:100,motorTemp:25,motorHealth:100,telemetry:[],loop:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
- $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';$('stopRun').disabled=!race.loop;
+ $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';resetPlayback();recordRaceFrame();syncTransportUI();
  $('runLog').textContent=courseMode==='technical'?'スタート！ 立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ 走行テンポは従来どおり4倍。パーツと微調整の効果を比較できます。';
  placeCar(0);accum=0;renderLapAnalysis(race);displayRace();
 }
 function stopRace(failed){
- const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;$('stopRun').disabled=true;
+ const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;playbackPaused=!failed;syncTransportUI();
  const key=raceRecordKey(r);const before=records[key]?.time;
  const report=`${courseMode==='technical'?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回 / 着地判定 ${r.lastLanding} / 着地衝撃 ${r.landingShock.toFixed(1)} / 最大姿勢角 ${r.landingPitch.toFixed(1)}° / バウンド ${r.bounces}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g / 電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃。`;
  if(failed){
@@ -633,7 +633,7 @@ function raceStep(dt){
  const advance=r.v*dt;
  r.distance+=advance;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
  accumulateWear(r,dt,advance);
- if(r.wearEnabled&&r.battery<=0){r.active=false;r.done=true;r.batteryEmpty=true;$('stopRun').disabled=true;$('stateRead').textContent='電池切れ';$('resultTime').textContent='BATTERY EMPTY';$('delta').textContent=`${r.laps}周完走後、電池残量が0%になりました`;$('runLog').textContent=`連続走行終了。累計走行 ${((r.laps*ovalLength)+r.distance).toFixed(1)}m。タイヤ残量 ${r.tire.toFixed(1)}%、モーター温度 ${r.motorTemp.toFixed(1)}℃。`;displayRace();return;}
+ if(r.wearEnabled&&r.battery<=0){r.active=false;r.done=true;r.batteryEmpty=true;playbackPaused=true;syncTransportUI();$('stateRead').textContent='電池切れ';$('resultTime').textContent='BATTERY EMPTY';$('delta').textContent=`${r.laps}周完走後、電池残量が0%になりました`;$('runLog').textContent=`連続走行終了。累計走行 ${((r.laps*ovalLength)+r.distance).toFixed(1)}m。タイヤ残量 ${r.tire.toFixed(1)}%、モーター温度 ${r.motorTemp.toFixed(1)}℃。`;displayRace();return;}
  if(technical){
   // Longitudinal balance combines front/rear dampers and fine position.
   // Positive pitch = nose up; excessive nose-up/down on landing is penalized.
@@ -758,14 +758,73 @@ document.addEventListener('keydown',e=>{
 applyGroundColor(groundColorChoice,false);
 $('arenaBackground').addEventListener('change',syncArenaBackdrop);
 $('wearEnabled').addEventListener('change',()=>{if(!race?.active){race=null;updateBest();updateCondition();}});
-$('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;$('stopRun').disabled=!race.loop;}});
-$('stopRun').addEventListener('click',()=>{if(!race?.active)return;const r=race;r.active=false;r.done=true;$('stopRun').disabled=true;$('stateRead').textContent='走行停止';$('delta').textContent=`任意停止：${r.laps}周完了 / 総走行 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`連続試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}。電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃`;updateCondition();});
-$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;showCourse();placeCar(0);updateBest();$('stopRun').disabled=true;$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();});$('startRun').onclick=startRace;$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');
+$('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;syncTransportUI();}});
+$('stopRun').addEventListener('click',()=>{if(!race)return;const r=race;playbackPaused=true;r.active=false;r.done=true;recordRaceFrame();$('stateRead').textContent='停止';$('delta').textContent=`停止：${r.laps}周完了 / 計測 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}。一時停止中はコマ送り戻しで直前の動作を研究できます。`;syncTransportUI();displayRace();});
+$('courseSelect').addEventListener('change',e=>{courseMode=e.target.value==='technical'?'technical':'oval';race=null;accum=0;resetPlayback();showCourse();placeCar(0);updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='コースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();});$('startRun').onclick=()=>{if(!race||race.done||!race.active){startRace();return}playbackPaused=false;trimFutureFrames();accum=0;syncTransportUI()};$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');
+// Playback, pause and bounded reversible timeline for frame-by-frame research.
+// A transport frame is 1/30 simulation seconds (4 fixed physics ticks).
+const SLOW_RATES=[4,2,1,.5];
+let playbackPaused=false,slowIndex=0,frameHistory=[],frameCursor=-1,transportTick=0;
+const FRAME_HISTORY_LIMIT=1800; // last 60 simulation seconds at 30 fps
+function resetPlayback(){playbackPaused=false;slowIndex=0;frameHistory=[];frameCursor=-1;transportTick=0;syncTransportUI()}
+function packRaceFrame(){
+ if(!race)return null;
+ const {p,crash,telemetry,...state}=race;
+ return {state:structuredClone(state),telemetry:structuredClone(telemetry),crash:null,
+  pos:carContainer.position.toArray(),rotation:carContainer.quaternion.toArray(),wheel:wheelAngle};
+}
+function recordRaceFrame(){
+ if(!race)return;
+ if(frameCursor<frameHistory.length-1)frameHistory.length=frameCursor+1;
+ frameHistory.push(packRaceFrame());
+ if(frameHistory.length>FRAME_HISTORY_LIMIT)frameHistory.shift();
+ frameCursor=frameHistory.length-1;
+}
+function restoreRaceFrame(index){
+ const f=frameHistory[index];if(!f||!race)return;
+ const p=race.p;
+ race={...structuredClone(f.state),p,telemetry:structuredClone(f.telemetry),crash:null};
+ carContainer.position.fromArray(f.pos);carContainer.quaternion.fromArray(f.rotation);
+ wheelAngle=f.wheel;for(const w of wheelGroups)w.rotation.z=wheelAngle;
+ frameCursor=index;accum=0;transportTick=0;
+ $('resultTime').textContent=race.lastLap==null?'--.-- s':race.lastLap.toFixed(2)+' s';
+ $('delta').textContent=`コマ送り位置：${race.time.toFixed(2)} 秒 / ${race.laps+1}周目`;
+ renderLapAnalysis(race);displayRace();syncTransportUI();
+}
+function trimFutureFrames(){if(frameCursor<frameHistory.length-1)frameHistory.length=frameCursor+1}
+function advancePhysicsTick(){
+ if(!race?.active)return;
+ raceStep(fixed);
+ transportTick++;
+ if(transportTick>=4||!race.active){transportTick=0;recordRaceFrame()}
+}
+function syncTransportUI(){
+ const exists=Boolean(race),live=Boolean(race?.active&&!race?.done);
+ $('startRun').textContent=exists&&live&&playbackPaused?'▶ 再開':'▶ 再生';
+ $('pauseRun').disabled=!live||playbackPaused;
+ $('pauseRun').textContent=playbackPaused?'Ⅱ 停止中':'Ⅱ 一時停止';
+ $('stopRun').disabled=!exists||(!race.active&&race.done);
+ $('stepBack').disabled=!exists||!playbackPaused||frameCursor<=0;
+ $('stepForward').disabled=!exists||!playbackPaused||(!race.active&&frameCursor>=frameHistory.length-1);
+ $('slowRun').textContent=['スロー：通常','スロー：1/2','スロー：1/4','スロー：1/8'][slowIndex];
+ $('transportStatus').textContent=`${['通常4倍','スロー2倍','スロー1倍','スロー0.5倍'][slowIndex]} / ${playbackPaused?'一時停止中・コマ送り可能':live?'再生中':'停止中'} / コマ送りは1/30秒`;
+}
+$('pauseRun').onclick=()=>{if(!race?.active)return;playbackPaused=true;accum=0;if(transportTick!==0){recordRaceFrame();transportTick=0}displayRace();syncTransportUI()};
+$('slowRun').onclick=()=>{slowIndex=(slowIndex+1)%SLOW_RATES.length;accum=0;syncTransportUI()};
+$('stepBack').onclick=()=>{if(playbackPaused&&frameCursor>0)restoreRaceFrame(frameCursor-1)};
+$('stepForward').onclick=()=>{
+ if(!playbackPaused||!race)return;
+ if(frameCursor<frameHistory.length-1){restoreRaceFrame(frameCursor+1);return}
+ if(!race.active)return;
+ for(let i=0;i<4&&race.active;i++)advancePhysicsTick();
+ if(transportTick>0){recordRaceFrame();transportTick=0}
+ displayRace();syncTransportUI();
+};
 let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;let lastConditionTime=0;
-function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active){accum+=elapsed*RACE_PLAYBACK_RATE;while(accum>=fixed){raceStep(fixed);accum-=fixed}displayRace()}
- if(screen==='test'&&race?.crash?.active){updateCrashAnimation(elapsed);displayRace()}
+function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active&&!playbackPaused){accum+=elapsed*SLOW_RATES[slowIndex];while(accum>=fixed&&race?.active){advancePhysicsTick();accum-=fixed}displayRace();syncTransportUI()}
+ if(screen==='test'&&race?.crash?.active&&!playbackPaused){updateCrashAnimation(elapsed);displayRace()}
  if(now-lastConditionTime>150){lastConditionTime=now;if(screen==='test')updateCondition();}
- const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active?RACE_PLAYBACK_RATE:race?.crash?.active?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
+ const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active&&!playbackPaused?SLOW_RATES[slowIndex]:race?.crash?.active&&!playbackPaused?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
  if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
  controls.update();
  // Prevent OrbitControls panning/zooming the test camera below the track floor.
