@@ -235,52 +235,109 @@ const metal=mat(0x7b929c,.8,.3),black=mat(0x141b22,.18,.73),rubber=mat(0x101319,
 function box(parent,w,h,d,material,x=0,y=0,z=0){const v=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);v.position.set(x,y,z);v.castShadow=true;v.receiveShadow=true;parent.add(v);return v}
 function cyl(parent,r1,r2,height,material,x,y,z,rotZ=0){const v=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,height,16),material);v.rotation.z=rotZ;v.position.set(x,y,z);v.castShadow=true;parent.add(v);return v}
 function tor(parent,r,tube,material,x,y,z,rotX=Math.PI/2){const v=new THREE.Mesh(new THREE.TorusGeometry(r,tube,8,32),material);v.position.set(x,y,z);v.rotation.x=rotX;v.castShadow=true;parent.add(v);return v}
+
+function sph(parent,r,material,x,y,z,rx=0,ry=0,rz=0,sx=1,sy=1,sz=1){
+ const v=new THREE.Mesh(new THREE.SphereGeometry(r,22,18),material);v.position.set(x,y,z);v.rotation.set(rx,ry,rz);v.scale.set(sx,sy,sz);v.castShadow=true;v.receiveShadow=true;parent.add(v);return v
+}
+function capsule(parent,r,length,material,x,y,z,rx=0,ry=0,rz=0,sx=1,sy=1,sz=1){
+ const v=new THREE.Mesh(new THREE.CapsuleGeometry(r,Math.max(.01,length),6,16),material);v.position.set(x,y,z);v.rotation.set(rx,ry,rz);v.scale.set(sx,sy,sz);v.castShadow=true;v.receiveShadow=true;parent.add(v);return v
+}
+function extrudeShell(parent,points,thickness,material,x,y,z,bevel=.038){
+ const shape=new THREE.Shape();
+ points.forEach((p,i)=>{if(i===0)shape.moveTo(p[0],p[1]);else shape.lineTo(p[0],p[1])});
+ shape.closePath();
+ const geo=new THREE.ExtrudeGeometry(shape,{depth:thickness,steps:1,bevelEnabled:true,bevelSegments:5,curveSegments:20,bevelSize:bevel,bevelThickness:Math.min(bevel,.028)});
+ geo.center();
+ const mesh=new THREE.Mesh(geo,material);mesh.rotation.x=Math.PI/2;mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh
+}
 const garageFloor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),mat(0x182733,.1,.85));garageFloor.rotation.x=-Math.PI/2;garageFloor.receiveShadow=true;garageGroup.add(garageFloor);
 const podium=new THREE.Mesh(new THREE.CylinderGeometry(1.43,1.53,.17,72),mat(0x263e4b,.62,.32));podium.position.y=.10;podium.receiveShadow=true;garageGroup.add(podium);
 const rim=new THREE.Mesh(new THREE.TorusGeometry(1.42,.026,8,80),new THREE.MeshBasicMaterial({color:0x55d9f2}));rim.rotation.x=Math.PI/2;rim.position.y=.195;garageGroup.add(rim);
 const grid=new THREE.GridHelper(16,28,0x345265,0x213847);grid.position.y=.004;garageGroup.add(grid);
-function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');const body=mat(t.color,.25,.3),accent=mat(t.accent,.32,.34),stayPart=choose('stay'),kit=choose('bodykit');const scale=0.9;group.scale.setScalar(scale);
- // Dimensions: local 3D units; nose along positive X. Wheels on both sides.
- box(group,1.35,.105,.58,carbon,0,.20,0);box(group,1.52,.06,.67,black,0,.13,0);
+
+function buildCar(){
+ wheelGroups=[];
+ const group=new THREE.Group();
+ const t=TYPES[cfg.type],ti=choose('tire'),r=choose('roller'),d=choose('damper'),b=choose('brake'),m=choose('motor');
+ const stayPart=choose('stay'),kit=choose('bodykit');
+ const body=mat(t.color,.25,.28),accent=mat(t.accent,.34,.26),bodyDark=mat(new THREE.Color(t.color).multiplyScalar(.58).getHex(),.22,.42),
+  canopy=new THREE.MeshStandardMaterial({color:0x101b27,metalness:.34,roughness:.16,transparent:true,opacity:.92}),
+  highlight=mat(0xf7f7fb,.58,.16),trim=mat(0x0d1117,.24,.76),amber=mat(0xf0c753,.54,.25);
+ const scale=.9;group.scale.setScalar(scale);
+ // chassis and lower deck
+ box(group,1.44,.08,.60,carbon,0,.19,0);
+ box(group,1.62,.05,.71,black,0,.125,0);
+ box(group,1.70,.024,.16,trim,.73,.155,0);
+ box(group,1.64,.022,.18,trim,-.73,.155,0);
  const wr=ti.diam/26*.165;
  for(const x of [-.47,.47])for(const z of [-.38,.38]){
-  // Rotate the full wheel assembly around its axle (Z), not the entire car.
   const assembly=new THREE.Group();assembly.position.set(x,wr+.01,z);group.add(assembly);
   const wheel=cyl(assembly,wr,wr,.15,rubber,0,0,0);wheel.rotation.x=Math.PI/2;
   const side=cyl(assembly,wr*.64,wr*.64,.154,mat(t.accent,.62,.28),0,0,0);side.rotation.x=Math.PI/2;
   cyl(assembly,wr*.21,wr*.21,.16,silver,0,0,0).rotation.x=Math.PI/2;
-  // Visible radial spokes make the rotation easy to read at low speeds.
   for(let k=0;k<6;k++){const a=k*Math.PI/3;const spoke=box(assembly,wr*.53,.019,.022,metal,Math.cos(a)*wr*.39,Math.sin(a)*wr*.39,z>0?.086:-.086);spoke.rotation.z=a;}
   wheelGroups.push(assembly);
  }
- // Contrasting stepped front nose and side fairings
- box(group,.65,.135,.42,body,.36,.30,0);box(group,.27,.10,.26,accent,.78,.26,0);
- box(group,.73,.17*(1-kit.cut*.12),.53,body,-.22,.32,0);box(group,.49,.22*(1-kit.cut*.14),.39,body,-.17,.47,0);
- box(group,.32,.055,.37,accent,-.18,.61,0);
- for(const z of [-.285,.285]){box(group,.92,.075,.095,accent,-.07,.31,z);box(group,.45,.06,.10,body,.45,.29,z)}
- // Body style differences
- if(cfg.type===0){box(group,.19,.035,.68,accent,-.66,.49,0);box(group,.48,.035,.10,body,-.54,.35,0);}
- if(cfg.type===1){box(group,.26,.12,.55,body,-.65,.53,0);box(group,.42,.055,.73,accent,-.64,.62,0);}
- if(cfg.type===2){box(group,.5,.055,.65,accent,-.53,.46,0);box(group,.28,.045,.66,body,.55,.40,0);}
- // Lightweight body variations are visible in the garage, not only as numbers.
+ // mechanical details
+ box(group,.42,.14,.25,metal,-.34,.16,0);
+ for(const z of [-.22,.22])box(group,.43,.11,.10,amber,.08,.205,z);
+ // base body shells with rounded outlines inspired by low, power and balanced cowl types.
+ if(cfg.type===0){
+  extrudeShell(group,[[.86,0],[.73,.15],[.34,.25],[-.18,.31],[-.64,.29],[-.94,.18],[-1.06,.06],[-1.02,-.06],[-.90,-.16],[-.60,-.28],[-.14,-.31],[.36,-.24],[.73,-.16]],.115,body,-.04,.35,0,.035);
+  extrudeShell(group,[[.55,0],[.39,.10],[.08,.15],[-.34,.19],[-.63,.17],[-.77,.09],[-.81,0],[-.77,-.09],[-.63,-.17],[-.34,-.19],[.08,-.15],[.39,-.10]],.072,accent,-.12,.47,0,.03);
+  capsule(group,.115,.40,canopy,-.08,.525,0,0,0,Math.PI/2,1.26,.84,1.0);
+  capsule(group,.075,.22,bodyDark,.42,.35,.27,0,0,Math.PI/2,1.15,.85,1);
+  capsule(group,.075,.22,bodyDark,.42,.35,-.27,0,0,Math.PI/2,1.15,.85,1);
+  box(group,.46,.06,.09,accent,-.70,.45,0);
+  box(group,.72,.05,.10,trim,.78,.29,0);
+  box(group,.22,.038,.40,highlight,.83,.245,0);
+  box(group,.30,.028,.13,bodyDark,.12,.58,0);
+ }
+ if(cfg.type===1){
+  extrudeShell(group,[[.89,0],[.78,.19],[.48,.31],[-.02,.35],[-.52,.36],[-.91,.26],[-1.10,.12],[-1.06,-.12],[-.88,-.26],[-.48,-.36],[-.02,-.35],[.48,-.31],[.78,-.19]],.13,body,-.02,.355,0,.04);
+  extrudeShell(group,[[.58,0],[.47,.12],[.12,.21],[-.20,.23],[-.57,.21],[-.78,.12],[-.86,0],[-.78,-.12],[-.57,-.21],[-.20,-.23],[.12,-.21],[.47,-.12]],.088,accent,-.10,.505,0,.032);
+  capsule(group,.14,.36,canopy,-.08,.56,0,0,0,Math.PI/2,1.22,.96,1);
+  capsule(group,.11,.28,bodyDark,.25,.39,.31,0,0,Math.PI/2,1.12,.88,1);
+  capsule(group,.11,.28,bodyDark,.25,.39,-.31,0,0,Math.PI/2,1.12,.88,1);
+  sph(group,.12,bodyDark,-.66,.46,.30,0,0,0,1.5,1,.86);
+  sph(group,.12,bodyDark,-.66,.46,-.30,0,0,0,1.5,1,.86);
+  box(group,.48,.09,.11,accent,-.83,.55,0);
+  box(group,.58,.055,.60,accent,-.73,.66,0);
+  box(group,.18,.08,.58,trim,-.73,.55,0);
+  box(group,.21,.045,.44,highlight,.86,.255,0);
+ }
+ if(cfg.type===2){
+  extrudeShell(group,[[.90,0],[.74,.18],[.36,.28],[-.08,.31],[-.46,.33],[-.82,.25],[-1.00,.13],[-1.03,0],[-1.00,-.13],[-.82,-.25],[-.46,-.33],[-.08,-.31],[.36,-.28],[.74,-.18]],.12,body,-.02,.35,0,.038);
+  extrudeShell(group,[[.52,0],[.34,.13],[-.02,.18],[-.38,.19],[-.63,.14],[-.76,.06],[-.80,0],[-.76,-.06],[-.63,-.14],[-.38,-.19],[-.02,-.18],[.34,-.13]],.075,accent,-.10,.475,0,.03);
+  capsule(group,.12,.35,canopy,-.10,.53,0,0,0,Math.PI/2,1.18,.9,1);
+  capsule(group,.088,.30,bodyDark,.22,.37,.29,0,0,Math.PI/2,1.22,.82,1);
+  capsule(group,.088,.30,bodyDark,.22,.37,-.29,0,0,Math.PI/2,1.22,.82,1);
+  box(group,.26,.07,.57,bodyDark,-.55,.42,0);
+  box(group,.42,.05,.10,accent,-.82,.45,0);
+  box(group,.34,.035,.18,accent,.48,.42,0);
+  box(group,.18,.04,.46,highlight,.82,.248,0);
+  box(group,.34,.03,.11,amber,.08,.57,0);
+ }
+ // common aerodynamic pieces / axle covers
+ capsule(group,.045,.66,trim,.02,.245,.34,Math.PI/2,0,0,1,1,1);
+ capsule(group,.045,.66,trim,.02,.245,-.34,Math.PI/2,0,0,1,1,1);
+ // Lightweight body variations remain visible in the garage.
  if(kit.cut>=1){
-   for(const z of [-.23,.23])box(group,.28,.014,.055,black,-.18,.625-kit.cut*.014,z);
+   for(const z of [-.18,.18])capsule(group,.022,.17,trim,.04,.50,z,0,0,Math.PI/2,1,.7,1);
  }
  if(kit.cut>=2){
-   for(const x of [-.38,.28])for(const z of [-.25,.25])box(group,.12,.013,.06,black,x,.397-kit.cut*.016,z);
+   for(const x of [-.34,.28])for(const z of [-.21,.21])capsule(group,.018,.10,trim,x,.40,z,0,0,Math.PI/2,1,.72,1);
  }
- if(kit.cut===3){box(group,.44,.026,.33,accent,.33,.39,0)}
- // Metallic motor and battery detail visible on chassis edges
- box(group,.37,.16,.23,metal,-.39,.16,0);for(const z of [-.21,.21])box(group,.42,.11,.10,gold,.1,.20,z);
- // Front and rear roller units share a single centerline (local Z = 0).
- // Both plates are built from the same component, and all bolts/rollers are
- // attached to the plate's center rather than to independent world offsets.
+ if(kit.cut===3){
+   box(group,.54,.024,.16,accent,.32,.42,0);
+   box(group,.32,.022,.10,highlight,.56,.33,0);
+ }
+ // Front and rear roller units share a single centerline.
  for(const side of [-1,1]){
   const x=side*(.78+cfg.fine.rollerSpread*.055);
   const h=cfg.fine.rollerHeight*.024;
   const mount=new THREE.Group();
   mount.position.set(x,0,0);group.add(mount);
-  // Reinforce the rear stay with a short central brace; no off-axis parts.
   if(side<0) box(mount,.31,.035,.16,carbon,.13,.205+h,0);
   box(mount,.15,stayPart.mass<0?.028:.045,1.10,stayPart.mass<0?mat(0x192b31,.28,.56):carbon,0,.22+h,0);
   for(const z of [-.52,.52]){
@@ -295,10 +352,22 @@ function buildCar(){wheelGroups=[];const group=new THREE.Group();const t=TYPES[c
    }
   }
  }
- if(d.mass){const n=d.mass>=12?4:2;for(let i=0;i<n;i++){const xx=(n===2?(cfg.parts.damper===2?-.56:.52):i<2?.52:-.56)+cfg.fine.damperBias*.10;const zz=i%2?-.29:.29;box(group,.09,.1,.11,gold,xx,.20,zz);cyl(group,.021,.021,.06,metal,xx,.28,zz)}}
- if(b.mass){const xx=cfg.parts.brake===2?-.88:.88;box(group,.20,.044,.70,mat(0xe88142),xx,.053+cfg.fine.brakeHeight*.012,0);if(cfg.parts.brake>=3)box(group,.18,.04,.7,mat(0xe88142),-.88,.053+cfg.fine.brakeHeight*.012,0)}
- if(m.rpm>1.2)box(group,.18,.03,.27,gold,-.18,.62,0);
- return group;}
+ if(d.mass){
+  const n=d.mass>=12?4:2;
+  for(let i=0;i<n;i++){
+   const xx=(n===2?(cfg.parts.damper===2?-.56:.52):i<2?.52:-.56)+cfg.fine.damperBias*.10;
+   const zz=i%2?-.29:.29;
+   box(group,.09,.1,.11,gold,xx,.20,zz);cyl(group,.021,.021,.06,metal,xx,.28,zz)
+  }
+ }
+ if(b.mass){
+  const xx=cfg.parts.brake===2?-.88:.88;
+  box(group,.20,.044,.70,mat(0xe88142),xx,.053+cfg.fine.brakeHeight*.012,0);
+  if(cfg.parts.brake>=3)box(group,.18,.04,.7,mat(0xe88142),-.88,.053+cfg.fine.brakeHeight*.012,0)
+ }
+ if(m.rpm>1.2)box(group,.18,.03,.27,gold,-.18,.60,0);
+ return group;
+}
 function refreshCar(){persist();renderUI();if(car){carContainer.remove(car);car.traverse(o=>{if(o.isMesh){o.geometry?.dispose();if(o.material&&!([metal,black,rubber,carbon,silver,gold].includes(o.material)))o.material.dispose()}})}car=buildCar();carContainer.add(car);carContainer.position.y=screen==='test'?TRACK_CAR_Y:GARAGE_CAR_Y;if(screen==='test'){setScreen('garage')}}
 // Smooth closed oval in X/Z plane, with curvature-based corner dynamics.
 // Ver.0.2.1: 3x the original physical circuit length (not a 3-lap timer).
