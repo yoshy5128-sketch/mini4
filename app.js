@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=071';
+import { buildTougeCar } from './touge-cars.js?v=072';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -590,15 +590,21 @@ function buildCar(){
   for(const side of [-1,1]){
    const z=side*span;
    beam(group,innerX,0,x,z,h,stay.mass<0?.026:.04);
-   box(group,.13,.035,.09,stayMat,x,h,z);
-   cyl(group,.018,.018,.13,metal,x,h+.065,z);
+   // Build every part around one local Y axis.  The old front stabilizer used
+   // x-.035, so its cap and shaft visibly missed the roller centre.
+   const rollerAssembly=new THREE.Group();
+   rollerAssembly.position.set(x,h,z);
+   rollerAssembly.userData.axis={x:0,z:0};
+   group.add(rollerAssembly);
+   box(rollerAssembly,.13,.035,.09,stayMat,0,0,0);
+   cyl(rollerAssembly,.018,.018,.13,metal,0,.065,0);
    const rad=r.diam/13*.071;
-   cyl(group,rad,rad,.055,r.friction<.7?gold:silver,x,h+.145,z);
-   cyl(group,rad*.55,rad*.55,.06,black,x,h+.177,z);
-   tor(group,rad*.72,.007,metal,x,h+.209,z,Math.PI/2);
+   cyl(rollerAssembly,rad,rad,.055,r.friction<.7?gold:silver,0,.145,0);
+   cyl(rollerAssembly,rad*.55,rad*.55,.06,black,0,.177,0);
+   tor(rollerAssembly,rad*.72,.007,metal,0,.209,0,Math.PI/2);
    if(end>0){
-    cyl(group,.025,.025,.10,metal,x-.035,h+.20,z);
-    cyl(group,.04,.04,.045,gold,x-.035,h+.275,z);
+    cyl(rollerAssembly,.025,.025,.10,metal,0,.20,0);
+    cyl(rollerAssembly,.04,.04,.045,gold,0,.275,0);
    }
    rollerCenters[rigName].push({x,y:h+.145,z});
   }
