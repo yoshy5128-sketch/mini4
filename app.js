@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js';
+import { buildTougeCar } from './touge-cars.js?v=071';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -578,13 +578,18 @@ function buildCar(){
   const part=box(parent,len,thickness,.07,stayMat,(x1+x2)/2,y,(z1+z2)/2);
   part.rotation.y=-Math.atan2(dz,dx);return part;
  };
- // Four independent V-stays replace the previous long board across the nose.
+ // Each roller rig starts at the exact vehicle centre.  Keeping a single
+ // centre datum prevents the paired rollers from looking laterally offset.
+ const rollerCenters={front:[],rear:[]};
  for(const end of [-1,1]){
   const x=end*(halfL+.11+cfg.fine.rollerSpread*.026),h=.13+cfg.fine.rollerHeight*.012;
   const innerX=end*(halfL-.23);
+  const span=Math.max(.49,halfW+.12);
+  const rigName=end>0?'front':'rear';
+  box(group,.14,.04,.12,stayMat,innerX,h,0);
   for(const side of [-1,1]){
-   const z=side*Math.max(.49,halfW+.12);
-   beam(group,innerX,side*.18,x,z,h,stay.mass<0?.026:.04);
+   const z=side*span;
+   beam(group,innerX,0,x,z,h,stay.mass<0?.026:.04);
    box(group,.13,.035,.09,stayMat,x,h,z);
    cyl(group,.018,.018,.13,metal,x,h+.065,z);
    const rad=r.diam/13*.071;
@@ -595,8 +600,15 @@ function buildCar(){
     cyl(group,.025,.025,.10,metal,x-.035,h+.20,z);
     cyl(group,.04,.04,.045,gold,x-.035,h+.275,z);
    }
+   rollerCenters[rigName].push({x,y:h+.145,z});
   }
  }
+ group.userData.rollerCenters=rollerCenters;
+ group.userData.frontRollerCenter={
+  x:rollerCenters.front[0].x,
+  y:rollerCenters.front[0].y,
+  z:(rollerCenters.front[0].z+rollerCenters.front[1].z)/2
+ };
  if(d.mass){
   const count=d.mass>=12?4:2;
   for(let i=0;i<count;i++){
@@ -1104,7 +1116,7 @@ function restoreRaceFrame(index){
  const p=race.p;
  race={...structuredClone(f.state),p,telemetry:structuredClone(f.telemetry),crash:null};
  carContainer.position.fromArray(f.pos);carContainer.quaternion.fromArray(f.rotation);
- wheelAngle=f.wheel;for(const w of wheelGroups)w.rotation.z=wheelAngle;
+ wheelAngle=f.wheel;for(const w of wheelGroups){if(w.userData.spinAxis==='x')w.rotation.x=wheelAngle;else w.rotation.z=wheelAngle}
  frameCursor=index;accum=0;transportTick=0;
  $('resultTime').textContent=race.lastLap==null?'--.-- s':race.lastLap.toFixed(2)+' s';
  $('delta').textContent=`コマ送り位置：${race.time.toFixed(2)} 秒 / ${race.laps+1}周目`;
@@ -1144,7 +1156,7 @@ let last=performance.now(),accum=0,wheelAngle=0;const fixed=1/120;let lastCondit
 function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now-last)/1000,.075);last=now;if(screen==='test'&&race?.active&&!playbackPaused){accum+=elapsed*SLOW_RATES[slowIndex];while(accum>=fixed&&race?.active){advancePhysicsTick();accum-=fixed}displayRace();syncTransportUI()}
  if(screen==='test'&&race?.crash?.active&&!playbackPaused){updateCrashAnimation(elapsed);displayRace()}
  if(now-lastConditionTime>150){lastConditionTime=now;if(screen==='test')updateCondition();}
- const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active&&!playbackPaused?SLOW_RATES[slowIndex]:race?.crash?.active&&!playbackPaused?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups)w.rotation.z=wheelAngle;
+ const speed=screen==='test'&&race?(race.crash?.active?race.v*0.45:race.v):0;const tireRadius=(choose('tire').diam/26*.165)*.9;wheelAngle-=speed*elapsed*(race?.active&&!playbackPaused?SLOW_RATES[slowIndex]:race?.crash?.active&&!playbackPaused?1:0)/Math.max(.02,tireRadius);for(const w of wheelGroups){if(w.userData.spinAxis==='x')w.rotation.x=wheelAngle;else w.rotation.z=wheelAngle}
  if(screen==='garage'&&car){carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.y=0}
  updateMotorSound();
  controls.update();
