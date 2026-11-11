@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=073';
+import { buildTougeCar } from './touge-cars.js?v=074';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -628,7 +628,36 @@ function buildCar(){
  return group;
 }
 
-function refreshCar(){persist();renderUI();if(car){carContainer.remove(car);car.traverse(o=>{if(o.isMesh){o.geometry?.dispose();if(o.material&&!([metal,black,rubber,carbon,silver,gold].includes(o.material)))o.material.dispose()}})}car=buildCar();carContainer.add(car);carContainer.position.y=screen==='test'?TRACK_CAR_Y:GARAGE_CAR_Y;if(screen==='test'){setScreen('garage')}}
+const sharedCarMaterials=new Set([metal,black,rubber,carbon,silver,gold]);
+function disposeCarModel(model){
+ const geometries=new Set(),materials=new Set(),textures=new Set();
+ model.traverse(object=>{
+  if(!object.isMesh)return;
+  if(object.geometry)geometries.add(object.geometry);
+  const list=Array.isArray(object.material)?object.material:[object.material];
+  for(const material of list){
+   if(!material||sharedCarMaterials.has(material))continue;
+   materials.add(material);
+   for(const value of Object.values(material))if(value?.isTexture)textures.add(value);
+  }
+ });
+ for(const texture of textures)texture.dispose();
+ for(const material of materials)material.dispose();
+ for(const geometry of geometries)geometry.dispose();
+}
+function refreshCar(){
+ persist();renderUI();
+ const previous=car;
+ // Build first so a failed custom design never leaves the scene empty.
+ const replacement=buildCar();
+ car=replacement;carContainer.add(replacement);
+ carContainer.position.y=screen==='test'?TRACK_CAR_Y:GARAGE_CAR_Y;
+ if(screen==='test')setScreen('garage');
+ if(previous){
+  carContainer.remove(previous);
+  try{disposeCarModel(previous)}catch(error){console.warn('旧車両リソースの解放を継続できませんでした',error)}
+ }
+}
 // Smooth closed oval in X/Z plane, with curvature-based corner dynamics.
 // Ver.0.2.1: 3x the original physical circuit length (not a 3-lap timer).
 // The lane width stays unchanged: this makes a genuinely longer course.
