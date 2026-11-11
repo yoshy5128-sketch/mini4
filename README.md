@@ -1,4 +1,10 @@
-# MINI 4WD LAB Ver.0.7.2 PWA
+# MINI 4WD LAB Ver.0.7.3 PWA
+
+## Ver.0.7.3：3D依存のローカル化と更新キャッシュ修正
+
+- Three.js 0.170.0とOrbitControlsをアプリ内へ同梱し、外部CDN障害時にも車両を表示
+- Service Workerが異なるバージョンのJavaScriptを混在させないよう、クエリを含む完全URLでキャッシュ
+- Service Worker更新後に一度だけ自動再読み込みし、新旧ファイル混在による初期化停止を防止
 
 ## Ver.0.7.2：フロントローラー同軸化
 
@@ -50,7 +56,7 @@
 
 ## 起動
 ZIP内のファイルを同じディレクトリで公開してください（GitHub + Vercel等）。
-PWA更新用Service Workerのバージョンは0.7.2です。初回アクセスにはインターネット接続が必要です。
+PWA更新用Service Workerのバージョンは0.7.3です。初回アクセス後は3D依存を含めてオフライン利用できます。
 
 ## 確認状況
 JavaScript構文、HTMLのDOM ID接続、Service Worker対象ファイル、ローカルHTTP配信（主要4ファイルが200応答）を確認済みです。PC・スマートフォン実機での音声と3D表示は未確認です。

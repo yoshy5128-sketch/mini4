@@ -1,8 +1,8 @@
 /* MINI 4WD LAB: increment APP_VERSION in every subsequent release. */
-const APP_VERSION = '0.7.2';
+const APP_VERSION = '0.7.3';
 const CACHE_PREFIX = 'mini4wd-lab-';
 const APP_CACHE = CACHE_PREFIX + APP_VERSION;
-const SHELL = ['./', './index.html', './app.js', './touge-cars.js', './body-custom.html', './body-custom.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+const SHELL = ['./', './index.html', './app.js?v=073', './touge-cars.js?v=073', './body-custom.html', './body-custom.js?v=073', './vendor/three/three.module.js', './vendor/three/addons/controls/OrbitControls.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
@@ -26,21 +26,7 @@ self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) {
-    // Three.js ESM files from the existing jsDelivr import map. Cache after a
-    // successful online fetch; offline works after these modules are loaded.
-    if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('/three@0.170.0/')) {
-      event.respondWith((async () => {
-        const cache = await caches.open(APP_CACHE);
-        const saved = await cache.match(req);
-        if (saved) return saved;
-        const response = await fetch(req);
-        if (response.ok || response.type === 'opaque') await cache.put(req, response.clone());
-        return response;
-      })());
-    }
-    return;
-  }
+  if (url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
@@ -56,7 +42,9 @@ self.addEventListener('fetch', event => {
   }
   event.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
-    const hit = await cache.match(req,{ignoreSearch:true});
+    // Query strings are release identifiers. Never answer v073 with an older
+    // cached module merely because its pathname is the same.
+    const hit = await cache.match(req);
     if (hit) return hit;
     try {
       const res = await fetch(req);

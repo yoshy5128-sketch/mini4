@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=072';
+import { buildTougeCar } from './touge-cars.js?v=073';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
