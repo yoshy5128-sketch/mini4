@@ -1,8 +1,8 @@
 /* MINI 4WD LAB: increment APP_VERSION in every subsequent release. */
-const APP_VERSION = '0.7.4';
+const APP_VERSION = '0.8.0';
 const CACHE_PREFIX = 'mini4wd-lab-';
 const APP_CACHE = CACHE_PREFIX + APP_VERSION;
-const SHELL = ['./', './index.html', './app.js?v=074', './touge-cars.js?v=074', './body-custom.html', './body-custom.js?v=074', './vendor/three/three.module.js', './vendor/three/addons/controls/OrbitControls.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+const SHELL = ['./', './index.html', './app.js?v=080', './touge-cars.js?v=080', './body-custom.html', './body-custom.js?v=080', './course-builder.html', './course-builder.js?v=080', './vendor/three/three.module.js', './vendor/three/addons/controls/OrbitControls.js', './manifest.webmanifest', './arena_background.jpg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
@@ -42,7 +42,7 @@ self.addEventListener('fetch', event => {
   }
   event.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
-    // Query strings are release identifiers. Never answer v074 with an older
+    // Query strings are release identifiers. Never answer v080 with an older
     // cached module merely because its pathname is the same.
     const hit = await cache.match(req);
     if (hit) return hit;
