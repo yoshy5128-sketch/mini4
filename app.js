@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=083';
+import { buildTougeCar } from './touge-cars.js?v=084';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -771,9 +771,10 @@ const COURSE_PATHS={
  junior:harmonicCourse(36.5,21,5,.105,.25),
  speed:harmonicCourse(40.5,21,3,.065,.55),
  technical3:harmonicCourse(38,22.4,6,.09,.9),
- // The multi-crossing Lissajous layout is deliberately retained: this is the
- // approved Cyber Cross shape, with elevation separating overlapping passes.
- doublecross:Array.from({length:36},(_,i)=>{const a=i/36*Math.PI*2;return [23*Math.sin(2*a),12.5*Math.sin(3*a)]})
+ // Keep the Cyber Cross topology, but enlarge every radius enough that the
+ // four offset lane paths remain smooth instead of folding into sharp cusps.
+ // Extra samples also stop the spline itself from faceting at the turnarounds.
+ doublecross:Array.from({length:96},(_,i)=>{const a=i/96*Math.PI*2;return [115*Math.sin(2*a),62.5*Math.sin(3*a)]})
 };
 activeCourse=COURSE_PRESETS.junior;
 function readCustomCourse(){try{return {layout:'balanced',straight:8,curve:8,wave:2,slope:2,bank:1,jump:1,...JSON.parse(localStorage.getItem(CUSTOM_COURSE_KEY))}}catch{return {layout:'balanced',straight:8,curve:8,wave:2,slope:2,bank:1,jump:1}}}
@@ -806,10 +807,14 @@ function distanceToNextCorner(u){
 function elevation(u){
  const v=((u%1)+1)%1;
  const rise=(start,top,end,height)=>height*(smooth((v-start)/(top-start))-smooth((v-top)/(end-top)));
+ const bridge=(start,upEnd,downStart,end,height)=>height*(smooth((v-start)/(upEnd-start))-smooth((v-downStart)/(end-downStart)));
  if(activeCourse.profile==='flat')return 0;
  if(activeCourse.profile==='bridge')return rise(.10,.18,.31,1.18)+rise(.61,.645,.69,.23);
  if(activeCourse.profile==='technical')return rise(.07,.17,.29,1.4)+rise(.52,.59,.66,.62)+rise(.77,.80,.835,.28);
- if(activeCourse.profile==='double')return rise(.02,.10,.19,1.55)+rise(.30,.39,.48,1.35)+rise(.58,.68,.78,1.6)+rise(.84,.90,.97,.95);
+ // Every Cyber Cross self-intersection has one deliberately raised branch.
+ // The 3.2+ unit clearance comfortably passes a complete Mini 4WD model;
+ // the enlarged layout leaves long, gentle approaches despite the height.
+ if(activeCourse.profile==='double')return bridge(.24,.28,.36,.40,3.2)+bridge(.39,.43,.55,.59,3.4)+bridge(.60,.64,.735,.78,3.25);
  if(activeCourse.profile==='custom'){
   const c=readCustomCourse(),s=Math.min(1,c.slope/2),j=Math.min(1,c.jump/2);
   return rise(.08,.18,.31,1.28*s)+rise(.52,.58,.66,.55*j)+(c.slope>2?rise(.73,.80,.88,.92):0);
@@ -860,17 +865,22 @@ function addLaneNumber(number,offset){
  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(corners.flatMap(v=>[v.x,v.y,v.z]),3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,1,1,0,1],2));geometry.setIndex([0,1,2,0,2,3]);
  const label=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,side:THREE.DoubleSide}));label.renderOrder=4;modularCourseGroup.add(label);
 }
-function safeSupportPoint(u,side){
- // Move each pier progressively farther from the local road until it clears
- // every other branch too—important on Cyber Cross's dense intersections.
- for(const extra of [.65,1.35,2.1,3]){
-  const offset=side*(TRACK_HALF_WIDTH+extra),candidate=oval(u,curveRadius+offset);
+function supportPointUnderDeck(u,side,deckHeight){
+ // Columns must sit inside the elevated road footprint. Try beneath the
+ // outer lane first, then move inward only when another, lower pass occupies
+ // that spot. A conflicting station is omitted instead of piercing its road.
+ const offsets=[3.05,2.35,1.65,.95,.3];
+ for(const distance of offsets){
+  const offset=side*distance,candidate=oval(u,curveRadius+offset);
   let clear=true;
-  for(let i=0;i<240;i++){
-   const q=oval(i/240);
-   if(Math.hypot(candidate.x-q.x,candidate.z-q.z)<TRACK_HALF_WIDTH+.32){clear=false;break}
+  for(let i=0;i<720;i++){
+   const otherU=i/720;
+   const separation=Math.min(Math.abs(otherU-u),1-Math.abs(otherU-u));
+   if(separation<.018||elevation(otherU)>=deckHeight-.45)continue;
+   const q=oval(otherU);
+   if(Math.hypot(candidate.x-q.x,candidate.z-q.z)<TRACK_HALF_WIDTH+.18){clear=false;break}
   }
-  if(clear)return candidate;
+  if(clear)return {...candidate,offset};
  }
  return null;
 }
@@ -906,12 +916,21 @@ function buildModularCourse(){
   const u=i/partCount,p=oval(u),q=oval(u+.001),ang=Math.atan2(q.z-p.z,q.x-p.x);
   const seam=box(modularCourseGroup,.025,.012,TRACK_HALF_WIDTH*2.02,new THREE.MeshBasicMaterial({color:0x263945}),p.x,.07+elevation(u),p.z);seam.rotation.y=-ang;
  }
- // Paired piers stand beyond both road edges. No support is allowed through a
- // lane, and Cyber Cross candidates are also checked against its other passes.
- for(let i=0;i<30;i++){
-  const u=i/30,h=elevation(u);if(h<.34)continue;
-  for(const side of [-1,1]){
-   const p=safeSupportPoint(u,side);if(p)box(modularCourseGroup,.20,h,.20,new THREE.MeshBasicMaterial({color:0x26323a}),p.x,h/2,p.z);
+ // Bridge bents now genuinely support the deck: paired columns stand beneath
+ // the elevated road, while collision checks omit columns over a lower pass.
+ const supportMaterial=new THREE.MeshBasicMaterial({color:0x26323a});
+ const supportRows=44;
+ for(let i=0;i<supportRows;i++){
+  const u=(i+.5)/supportRows,h=elevation(u);if(h<.72)continue;
+  const columns=[supportPointUnderDeck(u,-1,h),supportPointUnderDeck(u,1,h)].filter(Boolean);
+  for(const p of columns){
+   box(modularCourseGroup,.24,h-.04,.24,supportMaterial,p.x,(h-.04)/2,p.z);
+   box(modularCourseGroup,.48,.12,.48,supportMaterial,p.x,h-.025,p.z);
+  }
+  if(columns.length===2){
+   const center=oval(u),span=Math.abs(columns[1].offset-columns[0].offset);
+   const beam=box(modularCourseGroup,.22,.14,span+.38,supportMaterial,center.x,h-.04,center.z);
+   beam.rotation.y=-center.ang;
   }
  }
 }
@@ -929,7 +948,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.3：スタート位置1〜4を表示し、試走レーンを選択可能にしました。サイバークロスの支持脚は路面外へ移設しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.4：サイバークロスの急カーブを緩和し、交差高と路面下の支持脚を再設計しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1046,7 +1065,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v083_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v084_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
