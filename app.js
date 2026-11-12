@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=080';
+import { buildTougeCar } from './touge-cars.js?v=081';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -235,7 +235,6 @@ const controls=new OrbitControls(camera,renderer.domElement);controls.target.set
 scene.add(new THREE.HemisphereLight(0xaadffc,0x1c2b37,2.1));const sun=new THREE.DirectionalLight(0xffeee0,3.6);sun.position.set(4,9,5);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-12;sun.shadow.camera.right=12;sun.shadow.camera.top=12;sun.shadow.camera.bottom=-12;scene.add(sun);
 const ambientGlow=new THREE.PointLight(0x30bfff,18,7);ambientGlow.position.set(-3,2,-2);scene.add(ambientGlow);
 const garageGroup=new THREE.Group();scene.add(garageGroup);const trackGroup=new THREE.Group();trackGroup.visible=false;scene.add(trackGroup);const carContainer=new THREE.Group();scene.add(carContainer);
-const rivalContainers=[new THREE.Group(),new THREE.Group()];for(const rival of rivalContainers){rival.visible=false;scene.add(rival)}
 // Ver.0.4.4: Four inward-facing championship arena walls.
 // Separate arena-only 3D group; no impact on track geometry or physics.
 const arenaBackdrop = new THREE.Group();scene.add(arenaBackdrop);arenaBackdrop.visible=false;
@@ -664,9 +663,19 @@ function refreshCar(){
 // The lane width stays unchanged: this makes a genuinely longer course.
 let curveRadius=3.2*TRACK_SCALE,straightHalf=4.2*TRACK_SCALE;
 let ovalLength=4*straightHalf+2*Math.PI*curveRadius;
-const TRACK_HALF_WIDTH=1.08;
+// Three future battle lanes need enough lateral clearance for the wide road-car
+// bodies plus their roller stays.  Total course width is now 4 world units.
+const TRACK_HALF_WIDTH=2.0;
 let activeCourse={profile:'flat'};
+let courseCurve=null;
+let courseBounds={minX:-20,maxX:20,minZ:-12,maxZ:12};
+let courseCurvatureSamples=new Float32Array(720);
 function oval(u,r=curveRadius){let dist=((u%1)+1)%1*ovalLength;const straight=straightHalf*2, arc=Math.PI*curveRadius;
+ if(courseCurve){
+  const v=((u%1)+1)%1,point=courseCurve.getPointAt(v),tangent=courseCurve.getTangentAt(v);
+  const ang=Math.atan2(tangent.z,tangent.x),offset=r-curveRadius;
+  return {x:point.x-Math.sin(ang)*offset,z:point.z+Math.cos(ang)*offset,ang,curved:true};
+ }
  if(activeCourse?.profile==='double'){
   const v=((u%1)+1)%1,a=v*Math.PI*2,span=straightHalf+curveRadius*.42;
   const cx=span*Math.sin(a),cz=curveRadius*.92*Math.sin(2*a);
@@ -725,26 +734,45 @@ const technicalGroup=new THREE.Group();trackGroup.add(technicalGroup);
 const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x)};
 const CUSTOM_COURSE_KEY='mini4wd_lab_custom_course_v1';
 const COURSE_PRESETS={
- junior:{name:'ジャパンカップ風・基本',straight:4.2,radius:3.2,profile:'bridge',description:'3レーン基本コース。ストレート、カーブ、ウェーブ、立体レーンチェンジを組み合わせた約111mの周回路。'},
- speed:{name:'ハイスピード4ストレート',straight:6.1,radius:2.75,profile:'flat',description:'長い4連ストレートと高速コーナーを中心にしたスピードコース。'},
- technical3:{name:'テクニカル・バンク20',straight:4.55,radius:3.45,profile:'technical',description:'20°バンク、ウェーブ、スロープ、ジャンプを含む3レーン立体コース。'},
- doublecross:{name:'ダブル立体交差',straight:5.05,radius:3.05,profile:'double',description:'2か所の立体交差と連続カーブを組み合わせた大型複合コース。'},
- custom:{name:'マイ・カスタムコース',straight:4.7,radius:3.2,profile:'custom',description:'コースビルダーで保存したパーツ構成を使用します。'}
+ junior:{name:'テクニカル複合1',profile:'bridge',description:'基本セットを3組連結した大型複合。連続ヘアピン、S字、ウェーブ、立体レーンチェンジを配置。'},
+ speed:{name:'スピード複合2',profile:'flat',description:'外周ロングストレートと内周高速コーナーを行き来する長距離スピードコース。'},
+ technical3:{name:'テクニカル複合3',profile:'technical',description:'細かな折返し、20°バンク、連続スロープ、ジャンプを組み合わせた高難度コース。'},
+ doublecross:{name:'サイバークロス',profile:'double',description:'複数の交差と連続S字を持つ長大な立体コース。上段と下段を支持脚で分離。'},
+ custom:{name:'マイ・カスタムコース',profile:'custom',description:'コースビルダーのパーツ数と基本レイアウトから生成するオリジナル複合コース。'}
+};
+const COURSE_PATHS={
+ junior:[[-20,-9],[-10,-9],[-4,-6],[-8,-2],[-17,-2],[-20,3],[-17,9],[-8,10],[-2,7],[3,10],[12,10],[19,6],[17,0],[10,-1],[7,4],[1,4],[0,-2],[7,-5],[16,-5],[21,-1],[21,-8],[10,-11],[0,-10]],
+ speed:[[-25,-10],[-11,-10],[4,-10],[18,-10],[25,-5],[25,5],[19,11],[8,11],[4,6],[9,1],[18,2],[20,-3],[13,-6],[2,-4],[-7,0],[-3,6],[-10,11],[-21,9],[-26,3]],
+ technical3:[[-24,-11],[-14,-11],[-8,-7],[-12,-2],[-21,-1],[-24,5],[-19,12],[-10,13],[-4,8],[-7,3],[-1,0],[5,4],[2,11],[10,13],[19,9],[15,3],[9,0],[14,-4],[23,-4],[25,-11],[13,-14],[5,-9],[-2,-13]],
+ doublecross:Array.from({length:36},(_,i)=>{const a=i/36*Math.PI*2;return [23*Math.sin(2*a),12.5*Math.sin(3*a)]})
 };
 activeCourse=COURSE_PRESETS.junior;
 function readCustomCourse(){try{return {layout:'balanced',straight:8,curve:8,wave:2,slope:2,bank:1,jump:1,...JSON.parse(localStorage.getItem(CUSTOM_COURSE_KEY))}}catch{return {layout:'balanced',straight:8,curve:8,wave:2,slope:2,bank:1,jump:1}}}
 function configureCourse(){
  activeCourse=COURSE_PRESETS[courseMode]||COURSE_PRESETS.junior;
- let straight=activeCourse.straight,radius=activeCourse.radius;
+ let source=COURSE_PATHS[courseMode]||COURSE_PATHS.junior,scaleX=1,scaleZ=1;
  if(courseMode==='custom'){
   const c=readCustomCourse();
-  straight=(c.layout==='speed'?5.5:c.layout==='compact'?3.75:4.45)+c.straight*.12;
-  radius=(c.layout==='compact'?2.65:3.05)+c.curve*.055;
+  source=c.layout==='speed'?COURSE_PATHS.speed:c.layout==='compact'?COURSE_PATHS.technical3:COURSE_PATHS.junior;
+  scaleX=.78+c.straight*.035;scaleZ=.76+c.curve*.035+c.wave*.018;
  }
- straightHalf=straight*TRACK_SCALE;curveRadius=radius*TRACK_SCALE;ovalLength=4*straightHalf+2*Math.PI*curveRadius;
- if(activeCourse.profile==='double'){
-  let length=0,previous=oval(0,curveRadius);for(let i=1;i<=600;i++){const point=oval(i/600,curveRadius);length+=Math.hypot(point.x-previous.x,point.z-previous.z);previous=point}ovalLength=length;
+ const points=source.map(([x,z])=>new THREE.Vector3(x*scaleX,0,z*scaleZ));
+ courseCurve=new THREE.CatmullRomCurve3(points,true,'centripetal',.42);
+ ovalLength=courseCurve.getLength();curveRadius=3.2*TRACK_SCALE;
+ let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity;
+ for(let i=0;i<720;i++){const p=courseCurve.getPointAt(i/720);minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minZ=Math.min(minZ,p.z);maxZ=Math.max(maxZ,p.z)}
+ courseBounds={minX,maxX,minZ,maxZ};straightHalf=Math.max(Math.abs(minX),Math.abs(maxX));
+ for(let i=0;i<courseCurvatureSamples.length;i++){
+  const u=i/courseCurvatureSamples.length,d=.0015,a=courseCurve.getTangentAt((u-d+1)%1),b=courseCurve.getTangentAt((u+d)%1);
+  const dot=THREE.MathUtils.clamp(a.dot(b),-1,1),angle=Math.acos(dot);
+  courseCurvatureSamples[i]=angle/(ovalLength*d*2);
  }
+}
+function courseCurvature(u){const v=((u%1)+1)%1,index=Math.floor(v*courseCurvatureSamples.length)%courseCurvatureSamples.length;return courseCurvatureSamples[index]}
+function distanceToNextCorner(u){
+ const N=courseCurvatureSamples.length,start=Math.floor((((u%1)+1)%1)*N);
+ for(let i=0;i<Math.min(N,100);i++){if(courseCurvatureSamples[(start+i)%N]>.035)return i/N*ovalLength}
+ return ovalLength;
 }
 function elevation(u){
  const v=((u%1)+1)%1;
@@ -752,7 +780,7 @@ function elevation(u){
  if(activeCourse.profile==='flat')return 0;
  if(activeCourse.profile==='bridge')return rise(.10,.18,.31,1.18)+rise(.61,.645,.69,.23);
  if(activeCourse.profile==='technical')return rise(.07,.17,.29,1.4)+rise(.52,.59,.66,.62)+rise(.77,.80,.835,.28);
- if(activeCourse.profile==='double')return rise(.04,.13,.23,1.28)+rise(.41,.50,.62,1.35);
+ if(activeCourse.profile==='double')return rise(.02,.10,.19,1.55)+rise(.30,.39,.48,1.35)+rise(.58,.68,.78,1.6)+rise(.84,.90,.97,.95);
  if(activeCourse.profile==='custom'){
   const c=readCustomCourse(),s=Math.min(1,c.slope/2),j=Math.min(1,c.jump/2);
   return rise(.08,.18,.31,1.28*s)+rise(.52,.58,.66,.55*j)+(c.slope>2?rise(.73,.80,.88,.92):0);
@@ -794,7 +822,7 @@ function clearObjectGroup(group){
 }
 function buildModularCourse(){
  clearObjectGroup(modularCourseGroup);
- const N=480,verts=[],indices=[];
+ const N=600,verts=[],indices=[];
  for(let i=0;i<=N;i++){
   const u=i/N,inner=oval(u,curveRadius-TRACK_HALF_WIDTH),outer=oval(u,curveRadius+TRACK_HALF_WIDTH),y=.048+elevation(u);
   verts.push(outer.x,y,outer.z,inner.x,y,inner.z);
@@ -810,7 +838,7 @@ function buildModularCourse(){
  addCourseRail(TRACK_HALF_WIDTH,0xe85f61,.055);addCourseRail(-TRACK_HALF_WIDTH,0xe8edf0,.055);
  addCourseRail(TRACK_HALF_WIDTH/3,0xd8e6ec,.018);addCourseRail(-TRACK_HALF_WIDTH/3,0xd8e6ec,.018);
  // Repeating seams make the ABS course-part construction visible.
- const partCount=courseMode==='speed'?28:courseMode==='doublecross'?34:32;
+ const partCount=THREE.MathUtils.clamp(Math.round(ovalLength/3.2),44,96);
  for(let i=0;i<partCount;i++){
   const u=i/partCount,p=oval(u),q=oval(u+.001),ang=Math.atan2(q.z-p.z,q.x-p.x);
   const seam=box(modularCourseGroup,.025,.012,TRACK_HALF_WIDTH*2.02,new THREE.MeshBasicMaterial({color:0x263945}),p.x,.07+elevation(u),p.z);seam.rotation.y=-ang;
@@ -832,24 +860,13 @@ function showCourse(){
  const heading=document.getElementById('courseHeading');
  if(heading)heading.textContent=`3-LANE CIRCUIT / ${activeCourse.name}`;
  const description=document.getElementById('courseDescription');
- if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。3台同時走行対応。`;
+ if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。将来の3台バトルに対応するワイド3レーン規格。`;
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
 }
 
 // Match the scaled tires to the actual running surface and podium top.
 const TRACK_CAR_Y=.04-.9*.01;
 const GARAGE_CAR_Y=.185-.9*.01;
-function syncRivalCars(){
- for(const [index,container] of rivalContainers.entries()){
-  container.traverse(o=>{if(!o.isMesh)return;const list=Array.isArray(o.material)?o.material:[o.material];for(const material of list)material?.dispose?.()});
-  container.clear();
-  if(!car)continue;
-  const model=car.clone(true);
-  model.traverse(o=>{if(!o.isMesh)return;const wasArray=Array.isArray(o.material),list=wasArray?o.material:[o.material],cloned=list.map(m=>m?.clone?m.clone():m);o.material=wasArray?cloned:cloned[0]});
-  container.add(model);
-  const marker=box(container,.18,.035,.18,new THREE.MeshBasicMaterial({color:index?0xffcc36:0x37d8ff}),0,.82,0);marker.rotation.y=Math.PI/4;
- }
-}
 function positionRaceCar(container,u,laneOffset){
  const p=oval(u),y=TRACK_CAR_Y+elevation(u),nx=-Math.sin(p.ang),nz=Math.cos(p.ang);
  container.position.set(p.x+nx*laneOffset,y,p.z+nz*laneOffset);
@@ -862,26 +879,22 @@ function fitTrackCamera(){
  const rect=renderer.domElement.getBoundingClientRect();
  const aspect=Math.max(.25,rect.width/Math.max(1,rect.height));
  camera.fov=48;camera.updateProjectionMatrix();
- const halfW=straightHalf+curveRadius+TRACK_HALF_WIDTH+1.0,halfD=curveRadius+TRACK_HALF_WIDTH+1.0;
+ const centerX=(courseBounds.minX+courseBounds.maxX)/2,centerZ=(courseBounds.minZ+courseBounds.maxZ)/2;
+ const halfW=(courseBounds.maxX-courseBounds.minX)/2+TRACK_HALF_WIDTH+1.2,halfD=(courseBounds.maxZ-courseBounds.minZ)/2+TRACK_HALF_WIDTH+1.2;
  const direction=new THREE.Vector3(0,1.35,.65).normalize();
  const projectedVertical=halfD*direction.y+.35*direction.z;
  const halfTan=Math.tan(THREE.MathUtils.degToRad(camera.fov*.5));
  const requiredDistance=Math.max((halfW)/(halfTan*aspect),projectedVertical/halfTan)*1.20;
- controls.target.set(0,elevatedCourse()?.5:0,0);
- camera.position.copy(direction.multiplyScalar(requiredDistance)).add(new THREE.Vector3(0,elevatedCourse()?.5:0,0));
+ controls.target.set(centerX,elevatedCourse()?.5:0,centerZ);
+ camera.position.copy(direction.multiplyScalar(requiredDistance)).add(new THREE.Vector3(centerX,elevatedCourse()?.5:0,centerZ));
  controls.minDistance=3;
  controls.maxDistance=Math.max(110,requiredDistance*2.5);
  camera.updateProjectionMatrix();
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'3-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'TRIPLE RACE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'3台同時走行 / パーツ式コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);for(const rival of rivalContainers)rival.visible=testing;if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{syncRivalCars();placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
-function placeCar(u){
- positionRaceCar(carContainer,u,0);
- const elapsed=race?.time||0;
- const offsets=[-TRACK_HALF_WIDTH*.64,TRACK_HALF_WIDTH*.64],factors=[.978+Math.sin(elapsed*.7)*.004,1.012+Math.sin(elapsed*.51)*.004];
- for(let i=0;i<rivalContainers.length;i++)positionRaceCar(rivalContainers[i],((u*factors[i])%1+1)%1,offsets[i]);
-}
+function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'3-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'プレイヤー1台 / ワイド3レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
+function placeCar(u){positionRaceCar(carContainer,u,0)}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
 // The previous 1.05s exit phase moved the vehicle far out of view before
@@ -963,7 +976,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_3lane_v080`;
+ const base=`${courseMode}_3lane_v081`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -1024,7 +1037,7 @@ function startRace(){
    peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  playTone(880,.16,'square',.15,1120);
  $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';resetPlayback();recordRaceFrame();syncTransportUI();
- $('runLog').textContent=elevatedCourse()?'スタート！ 3台で立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ 3台同時走行で最高速とコーナー性能を比較します。';
+ $('runLog').textContent=elevatedCourse()?'スタート！ プレイヤーマシン1台で複合立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ プレイヤーマシン1台でロングコースの最高速とコーナー性能を確認します。';
  placeCar(0);accum=0;renderLapAnalysis(race);displayRace();
 }
 function stopRace(failed){
@@ -1050,13 +1063,11 @@ function stopRace(failed){
 // finite braking distance: strong motors without enough stability can go out.
 function raceStep(dt){
  if(!race?.active)return;
- const r=race,p=deriveRunningPhysics(r),sector=((r.distance%ovalLength)+ovalLength)%ovalLength;
- const straight=2*straightHalf,arc=Math.PI*curveRadius;
- const onCurve=sector>=straight&&sector<straight+arc||sector>=2*straight+arc;
- const toCorner=sector<straight?straight-sector:sector<straight+arc?0:sector<2*straight+arc?2*straight+arc-sector:0;
- const limit=p.cornerLimit;
+ const r=race,p=deriveRunningPhysics(r),u=r.distance/ovalLength;
+ const curvature=courseCurvature(u),onCurve=curvature>.035,toCorner=distanceToNextCorner(u);
+ const localRadius=1/Math.max(.008,curvature);
+ const limit=p.cornerLimit*THREE.MathUtils.clamp(Math.sqrt(localRadius/curveRadius),.72,1.38);
  const technical=elevatedCourse();
- const u=r.distance/ovalLength;
  const slope=technical?roadSlope(u):0;
  // Grip and rollers make corner speed costly even below the derailment limit.
  // No hard speed clamp: physical deceleration produces a real trade-off.
@@ -1070,7 +1081,7 @@ function raceStep(dt){
  }
  if(onCurve){forwardAccel-=p.cornerFriction*(r.v/Math.max(1,limit));r.curveTime+=dt;}
  // Brake just enough before entering corners; max braking is finite.
- if(!onCurve&&toCorner<8.0){
+ if(toCorner<10.0){
   const target=Math.max(.1,limit*.94);
   const stoppingDistance=Math.max(0,(r.v*r.v-target*target)/(2*p.brakePower));
   if(stoppingDistance+0.23>=toCorner&&r.v>target){
@@ -1082,7 +1093,7 @@ function raceStep(dt){
  if(onCurve&&r.v>limit*.94){
   // The rollers scrub the side walls instead of imposing instant slowdown.
   const prior=forwardAccel;
-  forwardAccel-=Math.min(5.0,(r.v-limit*.94)*3+p.cornerFriction);
+  forwardAccel-=Math.min(8.0,(r.v-limit*.94)*4+p.cornerFriction);
   r.cornerLoss+=Math.max(0,prior-forwardAccel)*dt*3.6;
  }
  r.v=Math.max(0,Math.min(p.maxSpeed,r.v+forwardAccel*dt));
@@ -1146,10 +1157,10 @@ function raceStep(dt){
  if(onCurve){
   const overload=r.v/Math.max(.1,limit);
   r.peakLateral=Math.max(r.peakLateral,overload);
-  if(overload>1.045)r.risk+=dt*(overload-1.045)*5;
-  else r.risk=Math.max(0,r.risk-dt*.65);
+  if(overload>1.08)r.risk+=dt*(overload-1.08)*1.8;
+  else r.risk=Math.max(0,r.risk-dt*.72);
  }else r.risk=Math.max(0,r.risk-dt*1.5);
- if(r.risk>.18){placeCar(Math.min(.9999,r.distance/ovalLength));stopRace(true);return}
+ if(r.risk>.75){placeCar(Math.min(.9999,r.distance/ovalLength));stopRace(true);return}
  if(r.distance>=ovalLength){
   const lapTime=r.time-r.lapStart;
   r.laps++;r.lastLap=lapTime;r.bestLap=Math.min(r.bestLap??Infinity,lapTime);snapshotLap(r,lapTime);
