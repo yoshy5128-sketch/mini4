@@ -2,15 +2,15 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#091722"><title>3レーン コースビルダー | MINI 4WD LAB</title>
+<meta name="theme-color" content="#091722"><title>4レーン コースビルダー | MINI 4WD LAB</title>
 <style>
 :root{color-scheme:dark;--bg:#07111a;--panel:#102433;--line:#36576b;--cyan:#59d9ff;--text:#e9f3fb;--muted:#9eb7c5;--gold:#f0bd62}*{box-sizing:border-box}body{margin:0;background:linear-gradient(150deg,#07111a,#102b38);color:var(--text);font-family:system-ui,"Yu Gothic",sans-serif;min-height:100dvh}.top{height:58px;padding:9px 18px;background:#091722;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}.top strong{font-size:18px}.top span{color:var(--cyan);font-size:11px}.back{margin-left:auto;text-decoration:none;color:white;border:1px solid var(--line);border-radius:8px;padding:8px 11px;background:#173142}.layout{display:grid;grid-template-columns:minmax(300px,430px) minmax(0,1fr);gap:16px;max-width:1200px;margin:auto;padding:18px}.panel,.preview{background:#0d202d;border:1px solid var(--line);border-radius:14px;padding:16px}.eyebrow{font-size:10px;color:var(--cyan);letter-spacing:2px;font-weight:900}h1{font-size:22px;margin:4px 0 6px}.help{font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 14px}.field{margin:13px 0}.fieldHead{display:flex;justify-content:space-between;font-size:12px;font-weight:800}.fieldHead output{color:var(--gold)}input[type=range]{width:100%;accent-color:var(--cyan)}select{width:100%;margin-top:6px;padding:10px;border-radius:8px;background:#183343;color:white;border:1px solid #4b7085}.parts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.part{background:#173141;border:1px solid #345568;border-radius:8px;padding:8px}.part b{font-size:12px}.part small{display:block;color:var(--muted);font-size:9px;margin-top:3px}.actions{display:flex;gap:8px;margin-top:15px}.actions button,.actions a{flex:1;border:0;border-radius:9px;padding:12px;text-align:center;text-decoration:none;font-weight:900;color:white;background:linear-gradient(110deg,#1687b6,#36bad0)}.actions .secondary{background:#263f4e;border:1px solid #49677a}.preview{min-height:470px;display:flex;flex-direction:column}.preview h2{font-size:15px;margin:0 0 10px}.canvas{flex:1;min-height:330px;background:radial-gradient(circle,#264653,#0a1720 75%);border-radius:10px;overflow:hidden;display:grid;place-items:center}.canvas svg{width:96%;height:96%}.summary{font-size:11px;color:#b8d1de;line-height:1.6;margin-top:10px}.saved{min-height:20px;color:#76e0ac;font-size:12px;margin-top:8px}@media(max-width:760px){.layout{grid-template-columns:1fr;padding:10px}.preview{min-height:390px}.top{padding:7px 10px}.top strong{font-size:14px}.parts{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
-<header class="top"><strong>MINI 4WD LAB</strong><span>3-LANE COURSE BUILDER</span><a class="back" href="./index.html">ゲームへ戻る</a></header>
+<header class="top"><strong>MINI 4WD LAB</strong><span>4-LANE COURSE BUILDER</span><a class="back" href="./index.html">ゲームへ戻る</a></header>
 <main class="layout">
- <section class="panel"><div class="eyebrow">MODULAR COURSE PARTS</div><h1>オリジナルコース制作</h1><p class="help">3レーン規格のパーツ数を決めてコースを組み立てます。保存した内容はゲームの「カスタムコース」に反映されます。</p>
+ <section class="panel"><div class="eyebrow">MODULAR COURSE PARTS</div><h1>オリジナルコース制作</h1><p class="help">透明ガイド壁を持つ4レーン規格のパーツ数を決めてコースを組み立てます。保存した内容はゲームの「カスタムコース」に反映されます。</p>
   <div class="field"><label class="fieldHead" for="layout"><span>基本レイアウト</span></label><select id="layout"><option value="balanced">バランス複合型</option><option value="speed">高速ロング型</option><option value="compact">省スペース立体型</option></select></div>
   <div class="parts">
    <label class="part"><b>ストレート</b><small>最高速区間を延長</small><span class="fieldHead"><span></span><output id="straightOut"></output></span><input id="straight" type="range" min="4" max="16" step="1"></label>
@@ -22,7 +22,7 @@
   </div>
   <div class="actions"><button id="save" type="button">保存して適用</button><button id="reset" class="secondary" type="button">標準に戻す</button></div><div id="saved" class="saved" aria-live="polite"></div>
  </section>
- <section class="preview"><h2>コースプレビュー / 3レーン</h2><div id="preview" class="canvas"></div><div id="summary" class="summary"></div></section>
+ <section class="preview"><h2>コースプレビュー / 4レーン</h2><div id="preview" class="canvas"></div><div id="summary" class="summary"></div></section>
 </main>
-<script type="module" src="course-builder.js?v=081"></script>
+<script type="module" src="course-builder.js?v=082"></script>
 </body></html>

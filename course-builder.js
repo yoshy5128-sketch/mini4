@@ -16,8 +16,8 @@ function sync(){
  const path=paths[state.layout]||paths.balanced;
  const waves=Array.from({length:Math.max(1,state.wave)},(_,i)=>`<circle cx="${26+i*8}" cy="${82-i%2*4}" r="1.8" fill="#f0bd62"/>`).join('');
  const bridge=state.slope?`<path d="M 58 57 Q 70 ${44-lift*.35} 82 52" fill="none" stroke="#f26767" stroke-width="5" stroke-linecap="round"/>`:'';
- const layered=[['#edf1f3',16],['#455866',14],['#d7e8ee',9],['#455866',8],['#d7e8ee',3.5],['#455866',2.5]].map(([color,width])=>`<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
- $('preview').innerHTML=`<svg viewBox="0 0 140 100" role="img" aria-label="3レーンカスタム複合コースの上面図">${layered}${bridge}${waves}<text x="70" y="97" fill="#9eb7c5" font-size="4" text-anchor="middle">白線＝3レーン境界 / 赤＝立体セクション / 黄＝ウェーブ</text></svg>`;
+ const layered=[['#edf1f3',18],['#455866',16],['#d7e8ee',9],['#455866',8],['#d7e8ee',1]].map(([color,width])=>`<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+ $('preview').innerHTML=`<svg viewBox="0 0 140 100" role="img" aria-label="4レーンカスタム複合コースの上面図">${layered}${bridge}${waves}<text x="70" y="97" fill="#9eb7c5" font-size="4" text-anchor="middle">白線＝4レーン境界 / 赤＝立体セクション / 黄＝ウェーブ</text></svg>`;
  const total=state.straight+state.curve+state.wave+state.slope+state.bank+state.jump;
  $('summary').textContent=`全${total}パーツ構成：ストレート${state.straight}、カーブ${state.curve}、ウェーブ${state.wave}、スロープ${state.slope}、20°バンク${state.bank}、ジャンプ${state.jump}。推定コース長は約${(95+state.straight*5.2+state.curve*3.3+state.wave*2.4).toFixed(1)}mです。`;
 }

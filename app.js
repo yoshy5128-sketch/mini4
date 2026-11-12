@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=081';
+import { buildTougeCar } from './touge-cars.js?v=082';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -21,7 +21,7 @@ const GROUPS=[
   {name:'3.5:1 超速',ratio:3.5,mass:1},{name:'3.7:1 高速',ratio:3.7,mass:1},{name:'4.0:1 標準',ratio:4,mass:0},{name:'4.2:1 加速',ratio:4.2,mass:0},{name:'5.0:1 登坂',ratio:5,mass:2}]},
  {key:'tire',label:'タイヤ',info:'小径は加速・安定寄り。大径は速度寄り。柔らかいタイヤはグリップが強めです。',parts:[
   {name:'小径ハード',diam:24,grip:.85,mass:-4},{name:'小径ソフト',diam:24,grip:1.19,mass:1},{name:'中径ノーマル',diam:26,grip:1,mass:0},{name:'大径ハード',diam:30,grip:.88,mass:4},{name:'大径ソフト',diam:30,grip:1.17,mass:7}]},
- {key:'roller',label:'ローラー',info:'摩擦の小さいローラーは旋回時の速度ロスを減らします。大径・安定型はコースアウトを抑制します。',parts:[
+ {key:'roller',label:'ローラー',info:'透明ガイド壁へ常時接触します。低摩擦は旋回ロスを減らし、大径は壁との隙間を詰めて衝撃とコースアウトを抑えます。',parts:[
   {name:'樹脂ローラー 13mm',friction:1,stability:.90,diam:13,mass:0},{name:'樹脂ローラー 19mm',friction:1.06,stability:1.09,diam:19,mass:3},{name:'アルミローラー 13mm',friction:.81,stability:1.01,diam:13,mass:5},{name:'ベアリング 13mm',friction:.57,stability:1.02,diam:13,mass:7},{name:'ベアリング 19mm',friction:.66,stability:1.25,diam:19,mass:10}]},
  {key:'damper',label:'ダンパー',info:'マスダンパーは重量と引き換えに着地・コーナー安定性を向上させます。',parts:[
   {name:'装着なし',mass:0,stability:0,landing:0},{name:'軽量フロント',mass:5,stability:.06,landing:.12},{name:'軽量リア',mass:5,stability:.08,landing:.1},{name:'前後バランス',mass:12,stability:.16,landing:.21},{name:'ヘビーセット',mass:22,stability:.27,landing:.3}]},
@@ -87,6 +87,10 @@ function updateMotorSound(){
  motorGain.gain.setTargetAtTime(audible?(.018+speedRatio*.065):0,now,audible?.045:.018);
 }
 const TRACK_SCALE=3;
+const TRACK_LANE_COUNT=4;
+const TRACK_LANE_WIDTH=1.8;
+const TRACK_HALF_WIDTH=TRACK_LANE_COUNT*TRACK_LANE_WIDTH/2;
+const PLAYER_LANE_OFFSET=-TRACK_LANE_WIDTH/2;
 // v0.2.4: run the *whole vehicle simulation* faster in wall-clock time.
 // The car covers the course faster on screen; camera stays in free overview.
 // Model-time telemetry and tuning comparisons remain calibrated as before.
@@ -103,11 +107,23 @@ function physics(){
  const acceleration=11.5*m.torque*t.torque*tune*batteryPart.voltage*(ratio/4)/wheel*(124/mass);
  const grip=ti.grip*t.grip;
  const stability=t.stability*r.stability*stay.rigidity*bodykit.rigidity*(1+d.stability)*Math.pow(124/mass,.15)*(1+fine.rollerSpread*.036-fine.rollerHeight*.032+(d.mass?(.018*Math.abs(fine.damperBias))*(-1):0));
- // A higher supported lateral load permits faster turns, but weighs more.
- const cornerLimit=9.2*Math.pow(TRACK_SCALE,.25)*Math.sqrt(Math.max(.35,grip*stability))*(1+.025*(r.diam-13)/6); // Spread and roller height alter the effective stability.
- const cornerFriction=.36*r.friction+Math.max(0,b.drag)*2.5+Math.max(0,fine.rollerSpread)*.045;
+ // Invisible lane walls guide the machine through its rollers. Roller reach
+ // controls wall clearance; height, fore/aft spread and stay rigidity control
+ // how much lateral load can be carried before the machine climbs the wall.
+ const rollerRadius=r.diam/13*.071;
+ const rollerReach=.49+rollerRadius;
+ // Physical guide calculation uses a 115 mm lane and the model's 86 mm
+ // roller-centre span. This yields 8 mm clearance for 13 mm rollers and
+ // 5 mm for 19 mm rollers, independently of the enlarged display scale.
+ const guideClearanceMm=(115-(86+r.diam))/2;
+ const clearanceQuality=THREE.MathUtils.clamp(1-Math.abs(guideClearanceMm-5)*.045,.72,1.04);
+ const heightSupport=1-fine.rollerHeight*.055;
+ const spreadSupport=1+fine.rollerSpread*.055;
+ const guideCapacity=12.6*Math.max(.42,grip*stability)*clearanceQuality*heightSupport*spreadSupport;
+ const cornerLimit=Math.sqrt(Math.max(1,guideCapacity*3.2*TRACK_SCALE));
+ const cornerFriction=.17+.31*r.friction+Math.max(0,b.drag)*2.5+Math.max(0,fine.rollerSpread)*.045;
  const brakePower=9+4*Math.max(0,grip-1)+3*Math.max(0,stability-1)+(b.mass?(4-fine.brakeHeight)*.35:0);
- return {mass,maxSpeed,acceleration,grip,stability,cornerLimit,cornerFriction,brakePower,
+ return {mass,maxSpeed,acceleration,grip,stability,cornerLimit,cornerFriction,brakePower,guideCapacity,guideClearanceMm,rollerReach,
   rollingLoss:.14+.09*r.friction+(b.mass?(4-fine.brakeHeight)*.035:0),airDrag:.0045*t.drag,landing:(.5+d.landing)*stability*stay.landing*bodykit.landing*(1+(d.mass?fine.damperBias*.045:0)),fine:{...fine}};
 }
 function score(p){return {speed:Math.round(Math.min(100,p.maxSpeed/18.8*100)),accel:Math.round(Math.min(100,p.acceleration/21*100)),corner:Math.round(Math.min(100,p.cornerLimit/15*100)),stability:Math.round(Math.min(100,(p.stability*.9+p.landing*.1)/1.7*100))}}
@@ -663,9 +679,8 @@ function refreshCar(){
 // The lane width stays unchanged: this makes a genuinely longer course.
 let curveRadius=3.2*TRACK_SCALE,straightHalf=4.2*TRACK_SCALE;
 let ovalLength=4*straightHalf+2*Math.PI*curveRadius;
-// Three future battle lanes need enough lateral clearance for the wide road-car
-// bodies plus their roller stays.  Total course width is now 4 world units.
-const TRACK_HALF_WIDTH=2.0;
+// Four lanes retain the established 1.8-unit pitch instead of squeezing more
+// cars into the old width. Every boundary is also an invisible guide wall.
 let activeCourse={profile:'flat'};
 let courseCurve=null;
 let courseBounds={minX:-20,maxX:20,minZ:-12,maxZ:12};
@@ -740,10 +755,21 @@ const COURSE_PRESETS={
  doublecross:{name:'サイバークロス',profile:'double',description:'複数の交差と連続S字を持つ長大な立体コース。上段と下段を支持脚で分離。'},
  custom:{name:'マイ・カスタムコース',profile:'custom',description:'コースビルダーのパーツ数と基本レイアウトから生成するオリジナル複合コース。'}
 };
+function harmonicCourse(rx,rz,lobes,amplitude,phase=0){
+ return Array.from({length:64},(_,i)=>{
+  const a=i/64*Math.PI*2;
+  const factor=1+amplitude*Math.sin(lobes*a+phase)+amplitude*.28*Math.sin((lobes+2)*a-phase*.6);
+  return [rx*factor*Math.cos(a),rz*factor*Math.sin(a)];
+ });
+}
 const COURSE_PATHS={
- junior:[[-20,-9],[-10,-9],[-4,-6],[-8,-2],[-17,-2],[-20,3],[-17,9],[-8,10],[-2,7],[3,10],[12,10],[19,6],[17,0],[10,-1],[7,4],[1,4],[0,-2],[7,-5],[16,-5],[21,-1],[21,-8],[10,-11],[0,-10]],
- speed:[[-25,-10],[-11,-10],[4,-10],[18,-10],[25,-5],[25,5],[19,11],[8,11],[4,6],[9,1],[18,2],[20,-3],[13,-6],[2,-4],[-7,0],[-3,6],[-10,11],[-21,9],[-26,3]],
- technical3:[[-24,-11],[-14,-11],[-8,-7],[-12,-2],[-21,-1],[-24,5],[-19,12],[-10,13],[-4,8],[-7,3],[-1,0],[5,4],[2,11],[10,13],[19,9],[15,3],[9,0],[14,-4],[23,-4],[25,-11],[13,-14],[5,-9],[-2,-13]],
+ // Points progress continuously around the perimeter.  Unlike the previous
+ // hand-drawn lists, the final tangent meets the first tangent without a cusp.
+ junior:harmonicCourse(36.5,21,5,.105,.25),
+ speed:harmonicCourse(40.5,21,3,.065,.55),
+ technical3:harmonicCourse(38,22.4,6,.09,.9),
+ // The multi-crossing Lissajous layout is deliberately retained: this is the
+ // approved Cyber Cross shape, with elevation separating overlapping passes.
  doublecross:Array.from({length:36},(_,i)=>{const a=i/36*Math.PI*2;return [23*Math.sin(2*a),12.5*Math.sin(3*a)]})
 };
 activeCourse=COURSE_PRESETS.junior;
@@ -830,13 +856,18 @@ function buildModularCourse(){
  }
  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(indices);geo.computeVertexNormals();
  const road=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x4b5862,side:THREE.DoubleSide}));road.renderOrder=1;modularCourseGroup.add(road);
- const addCourseRail=(offset,color,radius)=>{
-  const pts=[];for(let i=0;i<=N;i++){const u=i/N,p=oval(u,curveRadius+offset);pts.push(new THREE.Vector3(p.x,.09+elevation(u),p.z))}
-  const curve=new THREE.CatmullRomCurve3(pts,true);
+ const addCourseLine=(offset,color,radius)=>{
+  // Sample the authoritative path directly. Re-fitting the already-offset
+  // points caused the folded/triangular line artefacts on tight corners.
+  const curve=new THREE.Curve();
+  curve.getPoint=t=>{const p=oval(t,curveRadius+offset);return new THREE.Vector3(p.x,.09+elevation(t),p.z)};
   const mesh=new THREE.Mesh(new THREE.TubeGeometry(curve,N,radius,6,true),new THREE.MeshBasicMaterial({color}));mesh.renderOrder=2;modularCourseGroup.add(mesh);
  };
- addCourseRail(TRACK_HALF_WIDTH,0xe85f61,.055);addCourseRail(-TRACK_HALF_WIDTH,0xe8edf0,.055);
- addCourseRail(TRACK_HALF_WIDTH/3,0xd8e6ec,.018);addCourseRail(-TRACK_HALF_WIDTH/3,0xd8e6ec,.018);
+ for(let boundary=0;boundary<=TRACK_LANE_COUNT;boundary++){
+  const offset=-TRACK_HALF_WIDTH+boundary*TRACK_LANE_WIDTH;
+  const outside=boundary===0||boundary===TRACK_LANE_COUNT;
+  addCourseLine(offset,boundary===TRACK_LANE_COUNT?0xe85f61:0xe8edf0,outside ? .055 : .018);
+ }
  // Repeating seams make the ABS course-part construction visible.
  const partCount=THREE.MathUtils.clamp(Math.round(ovalLength/3.2),44,96);
  for(let i=0;i<partCount;i++){
@@ -853,14 +884,17 @@ function elevatedCourse(){return activeCourse.profile!=='flat'}
 function showCourse(){
  configureCourse();buildModularCourse();
  // Legacy prototype surfaces remain available in code, but the visible course
- // is now assembled from the shared three-lane modular part standard.
+ // is now assembled from the shared four-lane modular part standard.
  flatTrackMeshes.forEach(o=>o.visible=o===trackGround);
  trackGround.visible=true;
  technicalGroup.visible=false;modularCourseGroup.visible=true;
  const heading=document.getElementById('courseHeading');
- if(heading)heading.textContent=`3-LANE CIRCUIT / ${activeCourse.name}`;
+ if(heading)heading.textContent=`4-LANE CIRCUIT / ${activeCourse.name}`;
+ const selectLabel=document.querySelector('label[for="courseSelect"]');if(selectLabel)selectLabel.textContent='4レーンコース選択';
  const description=document.getElementById('courseDescription');
- if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。将来の3台バトルに対応するワイド3レーン規格。`;
+ if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
+ const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.2：全コースを4レーン化。連続周回、透明ガイド壁のローラー接触物理、折れ重なりのないコースラインを実装しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
 }
 
@@ -893,8 +927,8 @@ function fitTrackCamera(){
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'3-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'プレイヤー1台 / ワイド3レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
-function placeCar(u){positionRaceCar(carContainer,u,0)}
+function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'4-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'プレイヤー1台 / 透明ガイド壁4レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
+function placeCar(u){positionRaceCar(carContainer,u,PLAYER_LANE_OFFSET)}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
 // The previous 1.05s exit phase moved the vehicle far out of view before
@@ -976,7 +1010,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_3lane_v081`;
+ const base=`${courseMode}_4lane_v082`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -995,6 +1029,7 @@ function deriveRunningPhysics(r){
   grip:p.grip*tractionFactor,
   stability:p.stability*stabilityFactor,
   cornerLimit:p.cornerLimit*Math.sqrt(tractionFactor*stabilityFactor),
+  guideCapacity:p.guideCapacity*tractionFactor*stabilityFactor,
   landing:p.landing*(.82+.18*tire)
  };
 }
@@ -1034,7 +1069,7 @@ function updateCondition(){
 function displayRace(){if(!race)return;const r=race;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.active&&playbackPaused?'一時停止':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,r.distance/ovalLength*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);updateCondition()}
 function startRace(){
  const p=physics();race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,tire:100,motorTemp:25,motorHealth:100,telemetry:[],loop:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
-   peakLateral:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
+   peakLateral:0,guidePeak:0,wallContactTime:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  playTone(880,.16,'square',.15,1120);
  $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';resetPlayback();recordRaceFrame();syncTransportUI();
  $('runLog').textContent=elevatedCourse()?'スタート！ プレイヤーマシン1台で複合立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ プレイヤーマシン1台でロングコースの最高速とコーナー性能を確認します。';
@@ -1043,7 +1078,7 @@ function startRace(){
 function stopRace(failed){
  const r=race;if(!r||r.done)return;r.done=true;r.active=false;r.failed=failed;playbackPaused=!failed;syncTransportUI();
  const key=raceRecordKey(r);const before=records[key]?.time;
- const report=`${elevatedCourse()?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回 / 着地判定 ${r.lastLanding} / 着地衝撃 ${r.landingShock.toFixed(1)} / 最大姿勢角 ${r.landingPitch.toFixed(1)}° / バウンド ${r.bounces}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g / 電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃。`;
+ const report=`${elevatedCourse()?`ジャンプ ${r.jumps}回 / 着地 ${r.landings}回 / 着地判定 ${r.lastLanding} / 着地衝撃 ${r.landingShock.toFixed(1)} / 最大姿勢角 ${r.landingPitch.toFixed(1)}° / バウンド ${r.bounces}回。`:''}微調整［ローラー高 ${r.p.fine.rollerHeight*2}mm / 前後幅 ${r.p.fine.rollerSpread*12}mm / ダンパー ${r.p.fine.damperBias} / ブレーキ高 ${r.p.fine.brakeHeight}mm］。ローラー片側隙間 ${r.p.guideClearanceMm.toFixed(1)}mm / 壁接触 ${r.wallContactTime.toFixed(2)}秒 / 最大壁荷重 ${r.guidePeak.toFixed(2)}倍。最高速度 ${(r.maxV*3.6).toFixed(1)} km/h / コーナー走行 ${r.curveTime.toFixed(2)} 秒 / コーナー減速量 ${r.cornerLoss.toFixed(1)} km/h / 総重量 ${r.p.mass}g / 電池 ${r.battery.toFixed(1)}% / タイヤ ${r.tire.toFixed(1)}% / モーター ${r.motorTemp.toFixed(1)}℃。`;
  if(failed){
   playTone(150,.42,'sawtooth',.22,45);
   startCrashAnimation();
@@ -1066,7 +1101,11 @@ function raceStep(dt){
  const r=race,p=deriveRunningPhysics(r),u=r.distance/ovalLength;
  const curvature=courseCurvature(u),onCurve=curvature>.035,toCorner=distanceToNextCorner(u);
  const localRadius=1/Math.max(.008,curvature);
- const limit=p.cornerLimit*THREE.MathUtils.clamp(Math.sqrt(localRadius/curveRadius),.72,1.38);
+ // Invisible guide walls are contacted by the rollers. Corner speed emerges
+ // from v²/R versus roller/stay capacity instead of a visual wall collision.
+ const limit=Math.sqrt(Math.max(1,p.guideCapacity*localRadius));
+ const lateralLoad=onCurve?r.v*r.v/localRadius:0;
+ const guideLoad=lateralLoad/Math.max(.1,p.guideCapacity);
  const technical=elevatedCourse();
  const slope=technical?roadSlope(u):0;
  // Grip and rollers make corner speed costly even below the derailment limit.
@@ -1079,7 +1118,13 @@ function raceStep(dt){
   const brake=choose('brake');
   if(brake.mass&&Math.abs(slope)>.09)forwardAccel-=(4-cfg.fine.brakeHeight)*brake.drag*55;
  }
- if(onCurve){forwardAccel-=p.cornerFriction*(r.v/Math.max(1,limit));r.curveTime+=dt;}
+ if(onCurve){
+  const wallContact=THREE.MathUtils.clamp((guideLoad-.18)/.82,0,1.8);
+  forwardAccel-=p.cornerFriction*wallContact*(.45+r.v/Math.max(1,limit));
+  r.wallContactTime+=wallContact>.04?dt:0;
+  r.guidePeak=Math.max(r.guidePeak,guideLoad);
+  r.curveTime+=dt;
+ }
  // Brake just enough before entering corners; max braking is finite.
  if(toCorner<10.0){
   const target=Math.max(.1,limit*.94);
@@ -1155,7 +1200,7 @@ function raceStep(dt){
 
  // Ratio is tied to lateral acceleration (v²/R) vs. supported load.
  if(onCurve){
-  const overload=r.v/Math.max(.1,limit);
+  const overload=Math.sqrt(Math.max(0,guideLoad));
   r.peakLateral=Math.max(r.peakLateral,overload);
   if(overload>1.08)r.risk+=dt*(overload-1.08)*1.8;
   else r.risk=Math.max(0,r.risk-dt*.72);
@@ -1232,7 +1277,7 @@ $('arenaBackground').addEventListener('change',syncArenaBackdrop);
 $('wearEnabled').addEventListener('change',()=>{if(!race?.active){race=null;updateBest();updateCondition();}});
 $('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;syncTransportUI();}});
 $('stopRun').addEventListener('click',()=>{if(!race)return;const r=race;playbackPaused=true;r.active=false;r.done=true;recordRaceFrame();$('stateRead').textContent='停止';$('delta').textContent=`停止：${r.laps}周完了 / 計測 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}。一時停止中はコマ送り戻しで直前の動作を研究できます。`;syncTransportUI();displayRace();updateMotorSound();});
-$('courseSelect').addEventListener('change',e=>{courseMode=Object.hasOwn(COURSE_PRESETS,e.target.value)?e.target.value:'junior';race=null;accum=0;resetPlayback();showCourse();placeCar(0);fitTrackCamera();updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='3レーンコースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();updateMotorSound();});$('startRun').onclick=()=>{if(!race||race.done||!race.active){startRace();return}playbackPaused=false;trimFutureFrames();accum=0;syncTransportUI()};$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');
+$('courseSelect').addEventListener('change',e=>{courseMode=Object.hasOwn(COURSE_PRESETS,e.target.value)?e.target.value:'junior';race=null;accum=0;resetPlayback();showCourse();placeCar(0);fitTrackCamera();updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='4レーンコースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();updateMotorSound();});$('startRun').onclick=()=>{if(!race||race.done||!race.active){startRace();return}playbackPaused=false;trimFutureFrames();accum=0;syncTransportUI()};$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');
 // Playback, pause and bounded reversible timeline for frame-by-frame research.
 // A transport frame is 1/30 simulation seconds (4 fixed physics ticks).
 const SLOW_RATES=[4,2,1,.5];
@@ -1323,5 +1368,6 @@ statsHandle.addEventListener('click',event=>{event.stopPropagation();setStatsCol
 statsPanel.addEventListener('pointerdown',event=>{if(event.pointerType==='touch')statsSwipeStart={x:event.clientX,y:event.clientY}});
 statsPanel.addEventListener('pointerup',event=>{if(!statsSwipeStart)return;const dx=event.clientX-statsSwipeStart.x,dy=event.clientY-statsSwipeStart.y;statsSwipeStart=null;if(dx<-42&&Math.abs(dx)>Math.abs(dy)*1.25)setStatsCollapsed(true)});
 try{if(localStorage.getItem('mini4wd_stats_collapsed')==='1')setStatsCollapsed(true)}catch{}
+$('loopRun').checked=true;
 new ResizeObserver(resize).observe($('scene'));window.addEventListener('resize',resize);renderUI();refreshCar();setScreen('garage');updateCondition();resize();requestAnimationFrame(animate);
 document.addEventListener('visibilitychange',updateMotorSound);
