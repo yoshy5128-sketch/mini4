@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=082';
+import { buildTougeCar } from './touge-cars.js?v=083';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -90,7 +90,10 @@ const TRACK_SCALE=3;
 const TRACK_LANE_COUNT=4;
 const TRACK_LANE_WIDTH=1.8;
 const TRACK_HALF_WIDTH=TRACK_LANE_COUNT*TRACK_LANE_WIDTH/2;
-const PLAYER_LANE_OFFSET=-TRACK_LANE_WIDTH/2;
+// Course paths run counter-clockwise, so positive normal offsets are inside.
+const LANE_OFFSETS=Array.from({length:TRACK_LANE_COUNT},(_,i)=>TRACK_HALF_WIDTH-TRACK_LANE_WIDTH*(i+.5));
+const LANE_PREF_KEY='mini4wd_lab_start_lane_v1';
+let playerLane=1;try{playerLane=THREE.MathUtils.clamp(Number(localStorage.getItem(LANE_PREF_KEY))||1,1,TRACK_LANE_COUNT)}catch{}
 // v0.2.4: run the *whole vehicle simulation* faster in wall-clock time.
 // The car covers the course faster on screen; camera stays in free overview.
 // Model-time telemetry and tuning comparisons remain calibrated as before.
@@ -844,7 +847,32 @@ function addTechnicalSurface(){
 addTechnicalSurface();
 const modularCourseGroup=new THREE.Group();trackGroup.add(modularCourseGroup);
 function clearObjectGroup(group){
- for(const child of [...group.children]){group.remove(child);child.traverse(o=>{if(o.geometry)o.geometry.dispose();const list=Array.isArray(o.material)?o.material:[o.material];for(const m of list)if(m&&!sharedCarMaterials.has(m))m.dispose()})}
+ for(const child of [...group.children]){group.remove(child);child.traverse(o=>{if(o.geometry)o.geometry.dispose();const list=Array.isArray(o.material)?o.material:[o.material];for(const m of list)if(m&&!sharedCarMaterials.has(m)){if(m.map)m.map.dispose();m.dispose()}})}
+}
+function addLaneNumber(number,offset){
+ const canvas=document.createElement('canvas');canvas.width=canvas.height=128;
+ const ctx=canvas.getContext('2d');ctx.fillStyle='#10212ddd';ctx.beginPath();ctx.roundRect(12,12,104,104,24);ctx.fill();
+ ctx.strokeStyle='#ffd05a';ctx.lineWidth=8;ctx.stroke();ctx.fillStyle='#ffffff';ctx.font='900 76px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(number),64,67);
+ const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.minFilter=THREE.LinearFilter;
+ const u=.012,p=oval(u),t=new THREE.Vector3(Math.cos(p.ang),0,Math.sin(p.ang)),n=new THREE.Vector3(-Math.sin(p.ang),0,Math.cos(p.ang));
+ const center=new THREE.Vector3(p.x+n.x*offset,.082+elevation(u),p.z+n.z*offset),w=1.48,h=1.52;
+ const corners=[center.clone().addScaledVector(n,-w/2).addScaledVector(t,-h/2),center.clone().addScaledVector(n,w/2).addScaledVector(t,-h/2),center.clone().addScaledVector(n,w/2).addScaledVector(t,h/2),center.clone().addScaledVector(n,-w/2).addScaledVector(t,h/2)];
+ const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(corners.flatMap(v=>[v.x,v.y,v.z]),3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,1,1,0,1],2));geometry.setIndex([0,1,2,0,2,3]);
+ const label=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,side:THREE.DoubleSide}));label.renderOrder=4;modularCourseGroup.add(label);
+}
+function safeSupportPoint(u,side){
+ // Move each pier progressively farther from the local road until it clears
+ // every other branch too—important on Cyber Cross's dense intersections.
+ for(const extra of [.65,1.35,2.1,3]){
+  const offset=side*(TRACK_HALF_WIDTH+extra),candidate=oval(u,curveRadius+offset);
+  let clear=true;
+  for(let i=0;i<240;i++){
+   const q=oval(i/240);
+   if(Math.hypot(candidate.x-q.x,candidate.z-q.z)<TRACK_HALF_WIDTH+.32){clear=false;break}
+  }
+  if(clear)return candidate;
+ }
+ return null;
 }
 function buildModularCourse(){
  clearObjectGroup(modularCourseGroup);
@@ -868,16 +896,23 @@ function buildModularCourse(){
   const outside=boundary===0||boundary===TRACK_LANE_COUNT;
   addCourseLine(offset,boundary===TRACK_LANE_COUNT?0xe85f61:0xe8edf0,outside ? .055 : .018);
  }
+ const start=oval(0),ahead=oval(.001),startAngle=Math.atan2(ahead.z-start.z,ahead.x-start.x);
+ const startLine=box(modularCourseGroup,.12,.016,TRACK_HALF_WIDTH*2,new THREE.MeshBasicMaterial({color:0xffd05a}),start.x,.078+elevation(0),start.z);startLine.rotation.y=-startAngle;startLine.renderOrder=3;
+ // Painted start boxes: lane 1 is innermost and lane 4 outermost.
+ for(let lane=1;lane<=TRACK_LANE_COUNT;lane++)addLaneNumber(lane,LANE_OFFSETS[lane-1]);
  // Repeating seams make the ABS course-part construction visible.
  const partCount=THREE.MathUtils.clamp(Math.round(ovalLength/3.2),44,96);
  for(let i=0;i<partCount;i++){
   const u=i/partCount,p=oval(u),q=oval(u+.001),ang=Math.atan2(q.z-p.z,q.x-p.x);
   const seam=box(modularCourseGroup,.025,.012,TRACK_HALF_WIDTH*2.02,new THREE.MeshBasicMaterial({color:0x263945}),p.x,.07+elevation(u),p.z);seam.rotation.y=-ang;
  }
- // Supports are generated only below elevated sections, allowing true over/under views.
- for(let i=0;i<48;i++){
-  const u=i/48,h=elevation(u);if(h<.25)continue;
-  const p=oval(u);box(modularCourseGroup,.16,h,.16,new THREE.MeshBasicMaterial({color:0x26323a}),p.x,h/2,p.z);
+ // Paired piers stand beyond both road edges. No support is allowed through a
+ // lane, and Cyber Cross candidates are also checked against its other passes.
+ for(let i=0;i<30;i++){
+  const u=i/30,h=elevation(u);if(h<.34)continue;
+  for(const side of [-1,1]){
+   const p=safeSupportPoint(u,side);if(p)box(modularCourseGroup,.20,h,.20,new THREE.MeshBasicMaterial({color:0x26323a}),p.x,h/2,p.z);
+  }
  }
 }
 function elevatedCourse(){return activeCourse.profile!=='flat'}
@@ -894,8 +929,9 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.2：全コースを4レーン化。連続周回、透明ガイド壁のローラー接触物理、折れ重なりのないコースラインを実装しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.3：スタート位置1〜4を表示し、試走レーンを選択可能にしました。サイバークロスの支持脚は路面外へ移設しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
+ const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
 
 // Match the scaled tires to the actual running surface and podium top.
@@ -928,7 +964,7 @@ function fitTrackCamera(){
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
 function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'4-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'プレイヤー1台 / 透明ガイド壁4レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
-function placeCar(u){positionRaceCar(carContainer,u,PLAYER_LANE_OFFSET)}
+function placeCar(u){positionRaceCar(carContainer,u,LANE_OFFSETS[playerLane-1])}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
 // The previous 1.05s exit phase moved the vehicle far out of view before
@@ -1010,7 +1046,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v082`;
+ const base=`${courseMode}_4lane_v083_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -1072,7 +1108,7 @@ function startRace(){
    peakLateral:0,guidePeak:0,wallContactTime:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  playTone(880,.16,'square',.15,1120);
  $('resultTime').textContent='--.-- s';$('delta').textContent=race.loop?'連続走行中：停止ボタンで終了できます':'計測中';resetPlayback();recordRaceFrame();syncTransportUI();
- $('runLog').textContent=elevatedCourse()?'スタート！ プレイヤーマシン1台で複合立体コースの坂道・ジャンプ・着地を確認します。':'スタート！ プレイヤーマシン1台でロングコースの最高速とコーナー性能を確認します。';
+ $('runLog').textContent=elevatedCourse()?`スタート！ レーン${playerLane}から複合立体コースの坂道・ジャンプ・着地を確認します。`:`スタート！ レーン${playerLane}からロングコースの最高速とコーナー性能を確認します。`;
  placeCar(0);accum=0;renderLapAnalysis(race);displayRace();
 }
 function stopRace(failed){
@@ -1276,6 +1312,10 @@ $('soundBtn').addEventListener('click',()=>{
 $('arenaBackground').addEventListener('change',syncArenaBackdrop);
 $('wearEnabled').addEventListener('change',()=>{if(!race?.active){race=null;updateBest();updateCondition();}});
 $('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;syncTransportUI();}});
+$('laneSelect').addEventListener('change',event=>{
+ playerLane=THREE.MathUtils.clamp(Number(event.target.value)||1,1,TRACK_LANE_COUNT);try{localStorage.setItem(LANE_PREF_KEY,String(playerLane))}catch{}
+ race=null;accum=0;resetPlayback();placeCar(0);updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('delta').textContent=`レーン${playerLane}を選択中`;$('runLog').textContent=`スタート位置${playerLane}番（${playerLane===1?'最内側':playerLane===4?'最外側':'中間'}レーン）から試走します。`;$('progressBar').style.width='0%';updateCondition();updateMotorSound();
+});
 $('stopRun').addEventListener('click',()=>{if(!race)return;const r=race;playbackPaused=true;r.active=false;r.done=true;recordRaceFrame();$('stateRead').textContent='停止';$('delta').textContent=`停止：${r.laps}周完了 / 計測 ${r.time.toFixed(2)}秒`;$('runLog').textContent=`試走を停止しました。完走 ${r.laps}周。${r.bestLap==null?'完走記録なし':`最速ラップ ${r.bestLap.toFixed(2)} 秒`}。一時停止中はコマ送り戻しで直前の動作を研究できます。`;syncTransportUI();displayRace();updateMotorSound();});
 $('courseSelect').addEventListener('change',e=>{courseMode=Object.hasOwn(COURSE_PRESETS,e.target.value)?e.target.value:'junior';race=null;accum=0;resetPlayback();showCourse();placeCar(0);fitTrackCamera();updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('runLog').textContent='4レーンコースを切り替えました。試走スタートを押してください。';$('progressBar').style.width='0%';updateCondition();updateMotorSound();});$('startRun').onclick=()=>{if(!race||race.done||!race.active){startRace();return}playbackPaused=false;trimFutureFrames();accum=0;syncTransportUI()};$('resetBest').onclick=()=>{records={};localStorage.removeItem(recordsKey);updateBest()};$('garageTab').onclick=()=>setScreen('garage');$('testTab').onclick=()=>setScreen('test');$('backGarage').onclick=()=>setScreen('garage');$('goTest').onclick=()=>setScreen('test');$('resetView').onclick=()=>setView('angle');
 // Playback, pause and bounded reversible timeline for frame-by-frame research.
