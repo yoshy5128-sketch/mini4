@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=087';
+import { buildTougeCar } from './touge-cars.js?v=088';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -261,26 +261,19 @@ const arenaBackdrop = new THREE.Group();scene.add(arenaBackdrop);arenaBackdrop.v
 new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
  tex.colorSpace=THREE.SRGBColorSpace;
  tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+ tex.wrapS=THREE.RepeatWrapping;
+ tex.repeat.x=4;
  const panelHeight=ARENA_SIZE*(tex.image.height/tex.image.width);
- const material=new THREE.MeshBasicMaterial({map:tex,side:THREE.FrontSide,fog:false,depthWrite:false,depthTest:true});
- const panelGeometry=new THREE.PlaneGeometry(ARENA_SIZE,panelHeight);
- const specs=[
-  {label:'北',x:0,z:-ARENA_HALF,rotation:0},
-  {label:'南',x:0,z:ARENA_HALF,rotation:Math.PI},
-  {label:'東',x:ARENA_HALF,z:0,rotation:-Math.PI/2},
-  {label:'西',x:-ARENA_HALF,z:0,rotation:Math.PI/2}
- ];
- for(const side of specs){
-  const wall=new THREE.Mesh(panelGeometry,material);
-  wall.name='大会背景 '+side.label;
-  // Align the panorama panel's bottom edge to the actual venue floor.
-  // The old fixed Y=55 left the lower portion floating below the ground.
-  wall.position.set(side.x,panelHeight/2-0.03,side.z);
-  wall.rotation.y=side.rotation;
-  wall.renderOrder=-1;
-  wall.frustumCulled=false;
-  arenaBackdrop.add(wall);
- }
+ const material=new THREE.MeshBasicMaterial({map:tex,side:THREE.BackSide,fog:false,depthWrite:false,depthTest:true});
+ // One inward-facing cylinder replaces four flat panels. At diagonal camera
+ // angles the old panels exposed a large triangular gap at their corners.
+ const wall=new THREE.Mesh(new THREE.CylinderGeometry(ARENA_HALF,ARENA_HALF,panelHeight,128,1,true),material);
+ wall.name='継ぎ目なし大会背景';
+ wall.position.y=panelHeight/2-0.03;
+ wall.rotation.y=Math.PI/4;
+ wall.renderOrder=-1;
+ wall.frustumCulled=false;
+ arenaBackdrop.add(wall);
 },undefined,error=>{console.warn('大会背景画像を読み込めませんでした',error)});
 function syncArenaBackdrop(){arenaBackdrop.visible=screen==='test' && $('arenaBackground').checked;}
 function syncSceneEnvironment(){
@@ -965,7 +958,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.7：ズームアウト時も会場内を維持し、複合1のS字を明確化しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.8：観客席を継ぎ目のない円筒背景へ変更しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1083,7 +1076,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v087_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v088_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -1434,10 +1427,13 @@ function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now
   if(camera.position.y<minCameraY){
    camera.position.y=minCameraY;
   }
-  // Keep every preset camera inside the four championship-arena walls.
-  const cameraLimit=ARENA_HALF-4;
-  camera.position.x=THREE.MathUtils.clamp(camera.position.x,-cameraLimit,cameraLimit);
-  camera.position.z=THREE.MathUtils.clamp(camera.position.z,-cameraLimit,cameraLimit);
+  // Keep every preset camera inside the seamless cylindrical arena wall.
+  const cameraLimit=ARENA_HALF-5,cameraRadius=Math.hypot(camera.position.x,camera.position.z);
+  if(cameraRadius>cameraLimit){
+   const scale=cameraLimit/cameraRadius;
+   camera.position.x*=scale;
+   camera.position.z*=scale;
+  }
  }
  renderer.render(scene,camera)}
 function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
