@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=086';
+import { buildTougeCar } from './touge-cars.js?v=087';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -256,19 +256,19 @@ const ambientGlow=new THREE.PointLight(0x30bfff,18,7);ambientGlow.position.set(-
 const garageGroup=new THREE.Group();scene.add(garageGroup);const trackGroup=new THREE.Group();trackGroup.visible=false;scene.add(trackGroup);const carContainer=new THREE.Group();scene.add(carContainer);
 // Ver.0.4.4: Four inward-facing championship arena walls.
 // Separate arena-only 3D group; no impact on track geometry or physics.
+const ARENA_SIZE=280,ARENA_HALF=ARENA_SIZE/2;
 const arenaBackdrop = new THREE.Group();scene.add(arenaBackdrop);arenaBackdrop.visible=false;
 new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
  tex.colorSpace=THREE.SRGBColorSpace;
  tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
- const arenaSize=280,half=arenaSize/2;
- const panelHeight=arenaSize*(tex.image.height/tex.image.width);
+ const panelHeight=ARENA_SIZE*(tex.image.height/tex.image.width);
  const material=new THREE.MeshBasicMaterial({map:tex,side:THREE.FrontSide,fog:false,depthWrite:false,depthTest:true});
- const panelGeometry=new THREE.PlaneGeometry(arenaSize,panelHeight);
+ const panelGeometry=new THREE.PlaneGeometry(ARENA_SIZE,panelHeight);
  const specs=[
-  {label:'北',x:0,z:-half,rotation:0},
-  {label:'南',x:0,z:half,rotation:Math.PI},
-  {label:'東',x:half,z:0,rotation:-Math.PI/2},
-  {label:'西',x:-half,z:0,rotation:Math.PI/2}
+  {label:'北',x:0,z:-ARENA_HALF,rotation:0},
+  {label:'南',x:0,z:ARENA_HALF,rotation:Math.PI},
+  {label:'東',x:ARENA_HALF,z:0,rotation:-Math.PI/2},
+  {label:'西',x:-ARENA_HALF,z:0,rotation:Math.PI/2}
  ];
  for(const side of specs){
   const wall=new THREE.Mesh(panelGeometry,material);
@@ -733,7 +733,7 @@ const GROUND_COLORS={gray:0x626b72,green:0x2d6643,khaki:0x68664a,black:0x14272c}
 const groundColorStorageKey='mini4wd_lab_ground_color';
 function readGroundColor(){try{const value=localStorage.getItem(groundColorStorageKey);return Object.hasOwn(GROUND_COLORS,value)?value:'green'}catch{return 'green'}}
 let groundColorChoice=readGroundColor();
-const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(320,320),new THREE.MeshBasicMaterial({color:GROUND_COLORS[groundColorChoice],side:THREE.DoubleSide}));
+const trackGround=new THREE.Mesh(new THREE.PlaneGeometry(ARENA_SIZE*4,ARENA_SIZE*4),new THREE.MeshBasicMaterial({color:GROUND_COLORS[groundColorChoice],side:THREE.DoubleSide}));
 trackGround.rotation.x=-Math.PI/2;trackGround.position.y=-.03;
 // The floor extends beyond all four venue walls to prevent an exposed void
 // when zooming or orbiting. Keep a single plane to avoid Z-fighting.
@@ -752,7 +752,7 @@ const technicalGroup=new THREE.Group();trackGroup.add(technicalGroup);
 const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x)};
 const CUSTOM_COURSE_KEY='mini4wd_lab_custom_course_v1';
 const COURSE_PRESETS={
- junior:{name:'テクニカル複合1',profile:'bridge',description:'観客席内へ収まる全長約613mの周回コース。上下のロング区間へ緩やかな連続S字を組み込んだ4レーン平等設計。'},
+ junior:{name:'テクニカル複合1',profile:'bridge',description:'観客席内へ収まる全長約568mの周回コース。上下のロング区間に見て分かる緩やかな連続S字を配置した4レーン平等設計。'},
  speed:{name:'テクニカル複合2',profile:'speedbridge',description:'左右対称の高速ダブルループ。中央に高さ3.25の立体交差と緩勾配のロングブリッジを配置。'},
  doublecross:{name:'サイバークロス',profile:'double',description:'複数の交差と連続S字を持つ長大な立体コース。上段と下段を支持脚で分離。'},
  custom:{name:'マイ・カスタムコース',profile:'custom',description:'コースビルダーのパーツ数と基本レイアウトから生成するオリジナル複合コース。'}
@@ -770,16 +770,21 @@ function figureEightCourse(rx,rz){
   return [rx*Math.sin(a),rz*Math.sin(2*a)];
  });
 }
-function serpentineCourse(rx,rz,wave){
- return Array.from({length:128},(_,i)=>{
-  const a=i/128*Math.PI*2;
-  return [rx*Math.cos(a),rz*Math.sin(a)+wave*Math.sin(3*a)];
- });
+function serpentineStadium(straightHalf,radius,wave){
+ const points=[],samples=48;
+ // A complete, clearly visible S is placed in each long side. sin^2 makes
+ // both ends meet the semicircles with a horizontal tangent and no kink.
+ const s=t=>wave*Math.sin(Math.PI*2*t)*Math.sin(Math.PI*t)**2;
+ for(let i=0;i<samples;i++){const t=i/samples;points.push([-straightHalf+straightHalf*2*t,-radius+s(t)])}
+ for(let i=0;i<samples;i++){const a=-Math.PI/2+Math.PI*i/samples;points.push([straightHalf+radius*Math.cos(a),radius*Math.sin(a)])}
+ for(let i=0;i<samples;i++){const t=i/samples;points.push([straightHalf-straightHalf*2*t,radius-s(t)])}
+ for(let i=0;i<samples;i++){const a=Math.PI/2+Math.PI*i/samples;points.push([-straightHalf+radius*Math.cos(a),radius*Math.sin(a)])}
+ return points;
 }
 const COURSE_PATHS={
  // Points progress continuously around the perimeter.  Unlike the previous
  // hand-drawn lists, the final tangent meets the first tangent without a cusp.
- junior:serpentineCourse(110,62,20),
+ junior:serpentineStadium(64,48,12),
  speed:figureEightCourse(120,65),
  customSpeed:harmonicCourse(40.5,21,3,.065,.55),
  customCompact:harmonicCourse(38,22.4,6,.09,.9),
@@ -960,7 +965,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.6：テクニカル複合1を観客席内へ収め、緩いS字を追加。複合3を廃止しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.7：ズームアウト時も会場内を維持し、複合1のS字を明確化しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -989,12 +994,13 @@ function fitTrackCamera(){
  controls.target.set(centerX,elevatedCourse()?.5:0,centerZ);
  camera.position.copy(direction.multiplyScalar(requiredDistance)).add(new THREE.Vector3(centerX,elevatedCourse()?.5:0,centerZ));
  controls.minDistance=3;
- controls.maxDistance=Math.max(110,requiredDistance*2.5);
+ // Do not allow zooming beyond the four inward-facing venue walls.
+ controls.maxDistance=Math.max(requiredDistance+18,requiredDistance*1.55);
  camera.updateProjectionMatrix();
 }
 function setView(view){if(screen==='test'){fitTrackCamera();}
 else{camera.fov=38;controls.target.set(-.55,.28,0);camera.position.copy(({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']?new THREE.Vector3(...({front:[3.8,1.5,0],side:[0,1.4,3.9],top:[.01,4.5,.01],angle:[2.8,2.3,3.8]})[view||'angle']):new THREE.Vector3(2.8,2.3,3.8));camera.position.x-=.55;}camera.updateProjectionMatrix();controls.update();}
-function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'4-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'プレイヤー1台 / 透明ガイド壁4レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
+function setScreen(mode){screen=mode;showCourse();syncArenaBackdrop();syncSceneEnvironment();const testing=mode==='test';controls.enablePan=!testing;controls.maxPolarAngle=testing?Math.PI*.40:Math.PI*.48;$('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;$('overLine').textContent=testing?'4-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=testing?'プレイヤー1台 / 透明ガイド壁4レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);if(!testing){race=null;resetPlayback();carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}setView('angle');updateBest();updateMotorSound()}
 function placeCar(u){positionRaceCar(carContainer,u,LANE_OFFSETS[playerLane-1])}
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
@@ -1077,7 +1083,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v086_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v087_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -1428,6 +1434,10 @@ function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now
   if(camera.position.y<minCameraY){
    camera.position.y=minCameraY;
   }
+  // Keep every preset camera inside the four championship-arena walls.
+  const cameraLimit=ARENA_HALF-4;
+  camera.position.x=THREE.MathUtils.clamp(camera.position.x,-cameraLimit,cameraLimit);
+  camera.position.z=THREE.MathUtils.clamp(camera.position.z,-cameraLimit,cameraLimit);
  }
  renderer.render(scene,camera)}
 function resize(){const canvas=$('scene');const rect=canvas.getBoundingClientRect();if(rect.width&&rect.height){renderer.setSize(rect.width,rect.height,false);camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();if(screen==='test')fitTrackCamera()}}
