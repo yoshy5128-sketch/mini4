@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=089';
+import { buildTougeCar } from './touge-cars.js?v=0810';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -259,12 +259,21 @@ const garageGroup=new THREE.Group();scene.add(garageGroup);const trackGroup=new 
 const ARENA_SIZE=280,ARENA_HALF=ARENA_SIZE/2;
 const arenaBackdrop = new THREE.Group();scene.add(arenaBackdrop);arenaBackdrop.visible=false;
 new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
- tex.colorSpace=THREE.SRGBColorSpace;
- tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
- tex.wrapS=THREE.RepeatWrapping;
- tex.repeat.x=4;
+ // Keep the fence in the same continuous artwork as the grandstand. The
+ // source fence is only a few pixels tall, so enlarge its lower band on a
+ // canvas instead of placing a second 3D ring that can appear to float.
+ const sourceBand=.065,targetBand=.14,image=tex.image;
+ const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+ const ctx=canvas.getContext('2d'),upperSource=image.height*(1-sourceBand),upperTarget=image.height*(1-targetBand);
+ ctx.drawImage(image,0,0,image.width,upperSource,0,0,canvas.width,upperTarget);
+ ctx.drawImage(image,0,upperSource,image.width,image.height-upperSource,0,upperTarget,canvas.width,canvas.height-upperTarget);
+ const arenaTexture=new THREE.CanvasTexture(canvas);
+ arenaTexture.colorSpace=THREE.SRGBColorSpace;
+ arenaTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+ arenaTexture.wrapS=THREE.RepeatWrapping;
+ arenaTexture.repeat.x=4;
  const panelHeight=ARENA_SIZE*(tex.image.height/tex.image.width);
- const material=new THREE.MeshBasicMaterial({map:tex,side:THREE.BackSide,fog:false,depthWrite:false,depthTest:true});
+ const material=new THREE.MeshBasicMaterial({map:arenaTexture,side:THREE.BackSide,fog:false,depthWrite:false,depthTest:true});
  // One inward-facing cylinder replaces four flat panels. At diagonal camera
  // angles the old panels exposed a large triangular gap at their corners.
  const wall=new THREE.Mesh(new THREE.CylinderGeometry(ARENA_HALF,ARENA_HALF,panelHeight,128,1,true),material);
@@ -274,26 +283,6 @@ new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
  wall.renderOrder=-1;
  wall.frustumCulled=false;
  arenaBackdrop.add(wall);
- // Enlarge the narrow blue safety-fence strip drawn at the bottom of the
- // source artwork. On the full-height cylinder it was hidden at the floor
- // horizon, so a shallow inner ring keeps it visible in front of the crowd.
- const fenceTexture=tex.clone();
- fenceTexture.wrapS=THREE.RepeatWrapping;
- fenceTexture.wrapT=THREE.ClampToEdgeWrapping;
- fenceTexture.repeat.set(4,.075);
- fenceTexture.offset.set(0,0);
- fenceTexture.needsUpdate=true;
- const fenceHeight=9,fenceRadius=ARENA_HALF-1;
- const fence=new THREE.Mesh(
-  new THREE.CylinderGeometry(fenceRadius,fenceRadius,fenceHeight,128,1,true),
-  new THREE.MeshBasicMaterial({map:fenceTexture,side:THREE.BackSide,fog:false,depthWrite:true,depthTest:true})
- );
- fence.name='観客席前セーフティフェンス';
- fence.position.y=fenceHeight/2+.02;
- fence.rotation.y=Math.PI/4;
- fence.renderOrder=0;
- fence.frustumCulled=false;
- arenaBackdrop.add(fence);
 },undefined,error=>{console.warn('大会背景画像を読み込めませんでした',error)});
 function syncArenaBackdrop(){arenaBackdrop.visible=screen==='test' && $('arenaBackground').checked;}
 function syncSceneEnvironment(){
@@ -978,7 +967,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.9：観客席前の青いセーフティフェンスを見える高さで再現しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.10：観客席とフェンスを一体化し、床との隙間を解消しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1096,7 +1085,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v089_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v0810_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
