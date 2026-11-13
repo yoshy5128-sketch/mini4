@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=084';
+import { buildTougeCar } from './touge-cars.js?v=085';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -752,24 +752,31 @@ const technicalGroup=new THREE.Group();trackGroup.add(technicalGroup);
 const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x)};
 const CUSTOM_COURSE_KEY='mini4wd_lab_custom_course_v1';
 const COURSE_PRESETS={
- junior:{name:'テクニカル複合1',profile:'bridge',description:'基本セットを3組連結した大型複合。連続ヘアピン、S字、ウェーブ、立体レーンチェンジを配置。'},
- speed:{name:'スピード複合2',profile:'flat',description:'外周ロングストレートと内周高速コーナーを行き来する長距離スピードコース。'},
+ junior:{name:'テクニカル複合1',profile:'bridge',description:'全長約831mの大型周回コース。緩やかな連続S字とロングカーブ、ウェーブを組み合わせた4レーン平等設計。'},
+ speed:{name:'テクニカル複合2',profile:'speedbridge',description:'左右対称の高速ダブルループ。中央に高さ3.25の立体交差と緩勾配のロングブリッジを配置。'},
  technical3:{name:'テクニカル複合3',profile:'technical',description:'細かな折返し、20°バンク、連続スロープ、ジャンプを組み合わせた高難度コース。'},
  doublecross:{name:'サイバークロス',profile:'double',description:'複数の交差と連続S字を持つ長大な立体コース。上段と下段を支持脚で分離。'},
  custom:{name:'マイ・カスタムコース',profile:'custom',description:'コースビルダーのパーツ数と基本レイアウトから生成するオリジナル複合コース。'}
 };
 function harmonicCourse(rx,rz,lobes,amplitude,phase=0){
- return Array.from({length:64},(_,i)=>{
-  const a=i/64*Math.PI*2;
+ return Array.from({length:96},(_,i)=>{
+  const a=i/96*Math.PI*2;
   const factor=1+amplitude*Math.sin(lobes*a+phase)+amplitude*.28*Math.sin((lobes+2)*a-phase*.6);
   return [rx*factor*Math.cos(a),rz*factor*Math.sin(a)];
+ });
+}
+function figureEightCourse(rx,rz){
+ return Array.from({length:128},(_,i)=>{
+  const a=i/128*Math.PI*2+Math.PI/2;
+  return [rx*Math.sin(a),rz*Math.sin(2*a)];
  });
 }
 const COURSE_PATHS={
  // Points progress continuously around the perimeter.  Unlike the previous
  // hand-drawn lists, the final tangent meets the first tangent without a cusp.
- junior:harmonicCourse(36.5,21,5,.105,.25),
- speed:harmonicCourse(40.5,21,3,.065,.55),
+ junior:harmonicCourse(160,96,5,.045,.25),
+ speed:figureEightCourse(120,65),
+ customSpeed:harmonicCourse(40.5,21,3,.065,.55),
  technical3:harmonicCourse(38,22.4,6,.09,.9),
  // Keep the Cyber Cross topology, but enlarge every radius enough that the
  // four offset lane paths remain smooth instead of folding into sharp cusps.
@@ -783,7 +790,7 @@ function configureCourse(){
  let source=COURSE_PATHS[courseMode]||COURSE_PATHS.junior,scaleX=1,scaleZ=1;
  if(courseMode==='custom'){
   const c=readCustomCourse();
-  source=c.layout==='speed'?COURSE_PATHS.speed:c.layout==='compact'?COURSE_PATHS.technical3:COURSE_PATHS.junior;
+  source=c.layout==='speed'?COURSE_PATHS.customSpeed:c.layout==='compact'?COURSE_PATHS.technical3:COURSE_PATHS.junior;
   scaleX=.78+c.straight*.035;scaleZ=.76+c.curve*.035+c.wave*.018;
  }
  const points=source.map(([x,z])=>new THREE.Vector3(x*scaleX,0,z*scaleZ));
@@ -810,6 +817,7 @@ function elevation(u){
  const bridge=(start,upEnd,downStart,end,height)=>height*(smooth((v-start)/(upEnd-start))-smooth((v-downStart)/(end-downStart)));
  if(activeCourse.profile==='flat')return 0;
  if(activeCourse.profile==='bridge')return rise(.10,.18,.31,1.18)+rise(.61,.645,.69,.23);
+ if(activeCourse.profile==='speedbridge')return bridge(.55,.65,.85,.95,3.25);
  if(activeCourse.profile==='technical')return rise(.07,.17,.29,1.4)+rise(.52,.59,.66,.62)+rise(.77,.80,.835,.28);
  // Every Cyber Cross self-intersection has one deliberately raised branch.
  // The 3.2+ unit clearance comfortably passes a complete Mini 4WD model;
@@ -948,7 +956,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.4：サイバークロスの急カーブを緩和し、交差高と路面下の支持脚を再設計しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.5：テクニカル複合1・2を長大化し、複合2へ専用の立体交差を追加しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1065,7 +1073,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v084_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v085_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -1201,7 +1209,7 @@ function raceStep(dt){
  r.distance+=advance;r.time+=dt;r.maxV=Math.max(r.maxV,r.v);
  accumulateWear(r,dt,advance);
  if(r.wearEnabled&&r.battery<=0){r.active=false;r.done=true;r.batteryEmpty=true;playbackPaused=true;playTone(105,.5,'sawtooth',.18,42);syncTransportUI();$('stateRead').textContent='電池切れ';$('resultTime').textContent='BATTERY EMPTY';$('delta').textContent=`${r.laps}周完走後、電池残量が0%になりました`;$('runLog').textContent=`連続走行終了。累計走行 ${((r.laps*ovalLength)+r.distance).toFixed(1)}m。タイヤ残量 ${r.tire.toFixed(1)}%、モーター温度 ${r.motorTemp.toFixed(1)}℃。`;displayRace();return;}
- if(technical){
+ if(technical&&activeCourse.profile!=='speedbridge'){
   // Longitudinal balance combines front/rear dampers and fine position.
   // Positive pitch = nose up; excessive nose-up/down on landing is penalized.
   const damper=choose('damper'), tire=choose('tire');

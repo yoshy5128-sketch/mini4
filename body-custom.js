@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {buildTougeCar,loadTougeDesign,saveTougeDesign,resetTougeDesign} from './touge-cars.js?v=084';
+import {buildTougeCar,loadTougeDesign,saveTougeDesign,resetTougeDesign} from './touge-cars.js?v=085';
 
 const $=id=>document.getElementById(id),canvas=$('preview');let index=Math.max(0,Math.min(5,Number(new URLSearchParams(location.search).get('type'))||0));let design=loadTougeDesign(index),car;
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a1721);scene.fog=new THREE.Fog(0x0a1721,8,20);
