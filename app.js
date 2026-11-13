@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar } from './touge-cars.js?v=088';
+import { buildTougeCar } from './touge-cars.js?v=089';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -274,6 +274,26 @@ new THREE.TextureLoader().load('./arena_background.jpg',tex=>{
  wall.renderOrder=-1;
  wall.frustumCulled=false;
  arenaBackdrop.add(wall);
+ // Enlarge the narrow blue safety-fence strip drawn at the bottom of the
+ // source artwork. On the full-height cylinder it was hidden at the floor
+ // horizon, so a shallow inner ring keeps it visible in front of the crowd.
+ const fenceTexture=tex.clone();
+ fenceTexture.wrapS=THREE.RepeatWrapping;
+ fenceTexture.wrapT=THREE.ClampToEdgeWrapping;
+ fenceTexture.repeat.set(4,.075);
+ fenceTexture.offset.set(0,0);
+ fenceTexture.needsUpdate=true;
+ const fenceHeight=9,fenceRadius=ARENA_HALF-1;
+ const fence=new THREE.Mesh(
+  new THREE.CylinderGeometry(fenceRadius,fenceRadius,fenceHeight,128,1,true),
+  new THREE.MeshBasicMaterial({map:fenceTexture,side:THREE.BackSide,fog:false,depthWrite:true,depthTest:true})
+ );
+ fence.name='観客席前セーフティフェンス';
+ fence.position.y=fenceHeight/2+.02;
+ fence.rotation.y=Math.PI/4;
+ fence.renderOrder=0;
+ fence.frustumCulled=false;
+ arenaBackdrop.add(fence);
 },undefined,error=>{console.warn('大会背景画像を読み込めませんでした',error)});
 function syncArenaBackdrop(){arenaBackdrop.visible=screen==='test' && $('arenaBackground').checked;}
 function syncSceneEnvironment(){
@@ -958,7 +978,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent='プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.8：観客席を継ぎ目のない円筒背景へ変更しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.8.9：観客席前の青いセーフティフェンスを見える高さで再現しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1076,7 +1096,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v088_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v089_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
@@ -1428,7 +1448,7 @@ function animate(now){requestAnimationFrame(animate);const elapsed=Math.min((now
    camera.position.y=minCameraY;
   }
   // Keep every preset camera inside the seamless cylindrical arena wall.
-  const cameraLimit=ARENA_HALF-5,cameraRadius=Math.hypot(camera.position.x,camera.position.z);
+  const cameraLimit=ARENA_HALF-10,cameraRadius=Math.hypot(camera.position.x,camera.position.z);
   if(cameraRadius>cameraLimit){
    const scale=cameraLimit/cameraRadius;
    camera.position.x*=scale;
