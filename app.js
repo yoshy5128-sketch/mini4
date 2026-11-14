@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar,loadTougeDesign } from './touge-cars.js?v=091';
+import { buildTougeCar,loadTougeDesign } from './touge-cars.js?v=0100';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -45,6 +45,8 @@ let cfg=getStorage(settingsKey,{type:0,parts:{...defaults}});
 if(!Number.isInteger(cfg.type)||cfg.type<0||cfg.type>=TYPES.length)cfg.type=0;
 cfg.parts={...defaults,...cfg.parts};cfg.fine={rollerHeight:0,rollerSpread:0,damperBias:0,brakeHeight:2,motorTune:0,...cfg.fine};const FINE_RANGES={rollerHeight:[-2,2],rollerSpread:[-2,2],damperBias:[-2,2],brakeHeight:[0,4],motorTune:[-2,2]};for(const [k,[lo,hi]] of Object.entries(FINE_RANGES))cfg.fine[k]=Math.max(lo,Math.min(hi,Math.round(Number(cfg.fine[k])||0))); for(const group of GROUPS){if(!Number.isInteger(cfg.parts[group.key])||cfg.parts[group.key]<0||cfg.parts[group.key]>=group.parts.length)cfg.parts[group.key]=defaults[group.key]}
 let records=getStorage(recordsKey,{});let activeGroup='motor',screen='garage';let courseMode='junior';let race=null,car=null,track=null,visualReady=false;let wheelGroups=[];
+const RIVAL_ROSTER_KEY='mini4wd_lab_rival_roster_v1',BATTLE_PROGRESS_KEY='mini4wd_lab_battle_progress_v1';
+let rivalRoster=getStorage(RIVAL_ROSTER_KEY,null),battleProgress=getStorage(BATTLE_PROGRESS_KEY,{races:0,wins:0,losses:0});
 const partFor=(setup,k)=>GROUPS.find(x=>x.key===k).parts[setup.parts[k]];
 const choose=k=>partFor(cfg,k);
 const SOUND_PREF_KEY='mini4wd_lab_sound_v1';
@@ -971,7 +973,7 @@ function showCourse(){
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent=$('addRivals')?.checked?'草レース / 最大4台 / 個別セッティング / ゴール順位判定':'プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.9.1：草レースでライバル車が確実に表示されるよう修正しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.10.0：固定ライバル再戦、耐久電池、操作式ピットインに対応しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1011,7 +1013,7 @@ function setScreen(mode){
  controls.enablePan=!testing;controls.maxPolarAngle=testing?Math.PI*.40:Math.PI*.48;
  $('garagePane').classList.toggle('hidden',testing);$('testPane').classList.toggle('hidden',!testing);$('garageTab').classList.toggle('active',!testing);$('testTab').classList.toggle('active',testing);garageGroup.visible=!testing;trackGroup.visible=testing;
  $('overLine').textContent=testing?'4-LANE MODULAR CIRCUIT':'CUSTOM MACHINE WORKSHOP';$('overTitle').textContent=grass?'GRASS RACE':testing?'SOLO COURSE TEST':'TUNING GARAGE';$('overHint').textContent=grass?'最大4台 / 周回制 / ゴール順位判定':testing?'プレイヤー1台 / 透明ガイド壁4レーン複合コース':'ドラッグ：回転　ホイール/ピンチ：拡大縮小';$('viewStatus').classList.toggle('hidden',testing);$('sceneStats').classList.toggle('hidden',testing);
- if(!testing){race=null;resetPlayback();clearOpponentCars();carContainer.visible=true;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0}
+ if(!testing){race=null;resetPlayback();clearOpponentCars();carContainer.visible=true;carContainer.position.set(0,GARAGE_CAR_Y,0);carContainer.rotation.set(0,0,0)}else{placeCar(0);carContainer.rotation.x=0;carContainer.rotation.z=0;if(grass&&!race?.active)prepareOpponentEntries()}
  setView('angle');updateBest();updateMotorSound();
 }
 function placeCar(u){positionRaceCar(carContainer,u,LANE_OFFSETS[playerLane-1])}
@@ -1020,17 +1022,25 @@ function clearOpponentCars(){
  for(const racer of opponentRacers){opponentCarsGroup.remove(racer.container);try{disposeCarModel(racer.model)}catch(error){console.warn('ライバル車両の解放を継続できませんでした',error)}}
  opponentRacers=[];
 }
-function rivalSetup(index){
- const setup=structuredClone(cfg),profile=index%3;
+function rivalSetup(index,targetLaps){
+ const setup=structuredClone(cfg),profile=index%3,endurance=targetLaps>=5;
  setup.type=(cfg.type+index+1)%TYPES.length;
  const clampPart=(key,value)=>THREE.MathUtils.clamp(value,0,GROUPS.find(g=>g.key===key).parts.length-1);
+ if(endurance){
+  setup.parts.battery=2;setup.parts.bodykit=[3,2,1][profile];
+  setup.parts.motor=[0,1,3][profile];setup.parts.gear=[2,3,2][profile];
+  if(profile===0)setup.parts.tire=0;
+ }else{
+  if(profile===0){setup.parts.motor=4;setup.parts.battery=0;setup.fine.motorTune=THREE.MathUtils.clamp(setup.fine.motorTune+1,-2,2)}
+  if(profile===1){setup.parts.motor=2;setup.parts.gear=clampPart('gear',setup.parts.gear-1);setup.parts.bodykit=clampPart('bodykit',setup.parts.bodykit+1)}
+  if(profile===2){setup.parts.motor=3;setup.parts.gear=clampPart('gear',setup.parts.gear+1);setup.parts.battery=1}
+ }
  if(profile===0){setup.parts.roller=clampPart('roller',setup.parts.roller+1);setup.parts.damper=clampPart('damper',Math.max(1,setup.parts.damper));setup.fine.rollerSpread=THREE.MathUtils.clamp(setup.fine.rollerSpread+1,-2,2)}
- if(profile===1){setup.parts.gear=clampPart('gear',setup.parts.gear-1);setup.parts.bodykit=clampPart('bodykit',setup.parts.bodykit+1);setup.fine.motorTune=THREE.MathUtils.clamp(setup.fine.motorTune-1,-2,2)}
- if(profile===2){setup.parts.gear=clampPart('gear',setup.parts.gear+1);setup.parts.tire=clampPart('tire',setup.parts.tire+1);setup.parts.battery=clampPart('battery',setup.parts.battery+1);setup.fine.damperBias=THREE.MathUtils.clamp(setup.fine.damperBias-1,-2,2)}
+ if(profile===2){setup.parts.tire=clampPart('tire',setup.parts.tire+1);setup.fine.damperBias=THREE.MathUtils.clamp(setup.fine.damperBias-1,-2,2)}
  return setup;
 }
-function calibratedRivalPhysics(setup,index,playerPhysics){
- const raw=physicsFor(setup),pace=[.994,1.006,1.012][index%3],accel=[1.012,.988,1.002][index%3];
+function calibratedRivalPhysics(setup,index,playerPhysics,pace=1,accel=1){
+ const raw=physicsFor(setup);
  const blend=(base,value,amount)=>base*(1-amount)+value*amount;
  return {...raw,
   maxSpeed:blend(playerPhysics.maxSpeed,raw.maxSpeed,.22)*pace,
@@ -1042,17 +1052,38 @@ function calibratedRivalPhysics(setup,index,playerPhysics){
   airDrag:blend(playerPhysics.airDrag,raw.airDrag,.35)
  };
 }
+function createRivalRoster(count,targetLaps){
+ const playerPhysics=physics(),roll=Math.random(),careerBoost=Math.min(.018,(battleProgress.wins||0)*.002);
+ const challenge=roll<.34?'friendly':roll<.82?'balanced':'challenger';
+ const paceTable={friendly:[.950,.968,.984],balanced:[.982,.996,1.010],challenger:[1.002,1.014,1.025]};
+ const label={friendly:'勝機あり・全車やや控えめ',balanced:'接戦バランス',challenger:'強敵メンバー'}[challenge];
+ const entries=Array.from({length:count},(_,index)=>{
+  const setup=rivalSetup(index,targetLaps),pace=paceTable[challenge][index]+(challenge==='friendly'?0:careerBoost),accel=[1.008,.992,1.0][index];
+  const rivalPhysics=calibratedRivalPhysics(setup,index,playerPhysics,pace,accel);
+  if(challenge==='friendly'){rivalPhysics.maxSpeed=Math.min(rivalPhysics.maxSpeed,playerPhysics.maxSpeed*pace);rivalPhysics.acceleration=Math.min(rivalPhysics.acceleration,playerPhysics.acceleration*(pace+.012));rivalPhysics.guideCapacity=Math.min(rivalPhysics.guideCapacity,playerPhysics.guideCapacity*.995)}
+  return {id:`rival${index+1}`,name:`RIVAL-${index+1}`,setup,color:RIVAL_COLORS[index],pace,physics:rivalPhysics};
+ });
+ rivalRoster={version:1,id:Date.now(),count,targetLaps,challenge,label,entries};
+ try{localStorage.setItem(RIVAL_ROSTER_KEY,JSON.stringify(rivalRoster))}catch{}
+ return rivalRoster;
+}
+function ensureRivalRoster(count,targetLaps,force=false){
+ const valid=rivalRoster?.version===1&&rivalRoster.count===count&&rivalRoster.targetLaps===targetLaps&&Array.isArray(rivalRoster.entries)&&rivalRoster.entries.length===count;
+ return force||!valid?createRivalRoster(count,targetLaps):rivalRoster;
+}
 function createOpponentCars(count,playerPhysics,targetLaps){
  clearOpponentCars();
  opponentCarsGroup.visible=true;
+ const roster=ensureRivalRoster(count,targetLaps);
  const lanes=[1,2,3,4].filter(lane=>lane!==playerLane).slice(0,count);
  lanes.forEach((lane,index)=>{
-  const setup=rivalSetup(index),color=RIVAL_COLORS[index],design={...loadTougeDesign(setup.type),color,bumperColor:'#'+new THREE.Color(color).multiplyScalar(.62).getHexString(),wheelColor:index===0?'#e7f5ff':index===1?'#f3d6ff':'#ffe0b8'};
+  const entry=roster.entries[index],setup=structuredClone(entry.setup),color=entry.color,design={...loadTougeDesign(setup.type),color,bumperColor:'#'+new THREE.Color(color).multiplyScalar(.62).getHexString(),wheelColor:index===0?'#e7f5ff':index===1?'#f3d6ff':'#ffe0b8'};
   const container=new THREE.Group(),model=buildCar(setup,design);container.add(model);opponentCarsGroup.add(container);
-  const p=calibratedRivalPhysics(setup,index,playerPhysics);
-  const racer={id:`rival${index+1}`,name:`RIVAL-${index+1}`,lane,setup,color,container,model,wheels:model.userData.wheelGroups||[],wheelAngle:0,p,v:0,maxV:0,distance:0,laps:0,time:0,finished:false,finishTime:null,dnf:false,targetLaps,battery:100,tire:100,motorTemp:25,motorHealth:100};
+  const p=structuredClone(entry.physics);
+  const racer={id:entry.id,name:entry.name,lane,setup,color,container,model,wheels:model.userData.wheelGroups||[],wheelAngle:0,p,v:0,maxV:0,distance:0,laps:0,time:0,finished:false,finishTime:null,dnf:false,targetLaps,battery:100,batteryLapBase:0,tire:100,motorTemp:25,motorHealth:100,pitStops:0};
   opponentRacers.push(racer);positionRaceCar(container,0,LANE_OFFSETS[lane-1]);
  });
+ renderRosterSummary();
 }
 function grassProgress(racer){return racer.laps*ovalLength+racer.distance}
 function grassOrder(){
@@ -1066,7 +1097,15 @@ function grassOrder(){
 }
 function renderGrassStandings(final=false){
  const panel=$('raceStandings');if(!panel)return;
- if(!race?.grass){panel.classList.add('hidden');panel.innerHTML='';return}
+ if(!race?.grass){
+  if($('addRivals')?.checked&&opponentRacers.length){
+   panel.classList.remove('hidden');
+   const entries=[{name:'PLAYER',lane:playerLane,color:'#ffe45f',player:true,setup:cfg,p:physics()},...opponentRacers];
+   panel.innerHTML=entries.map(entry=>`<div class="standingRow ${entry.player?'player':''}"><span class="standingRank">E</span><span class="standingDot" style="background:${entry.color}"></span><span><strong>${entry.name}</strong><span class="standingMeta"> / L${entry.lane} / ${TYPES[entry.setup.type].label} / ${entry.p.mass}g</span></span><span class="entryBadge">ENTRY</span></div>`).join('');
+   return;
+  }
+  panel.classList.add('hidden');panel.innerHTML='';return;
+ }
  panel.classList.remove('hidden');
  panel.innerHTML=grassOrder().map((entry,index)=>{
   const state=entry.dnf?'DNF':entry.finished?`${entry.finishTime.toFixed(2)}秒`:`${Math.min(entry.laps+1,race.targetLaps)}/${race.targetLaps}周`;
@@ -1075,8 +1114,22 @@ function renderGrassStandings(final=false){
  }).join('');
  if(final)panel.setAttribute('aria-label','草レース最終順位');
 }
+function renderRosterSummary(){
+ const target=$('rivalRosterSummary');if(!target)return;
+ if(!$('addRivals')?.checked||!rivalRoster){target.textContent='草レースを有効にすると対戦相手がエントリーします。';return}
+ const endurance=rivalRoster.targetLaps>=5?'耐久仕様（大容量電池・省電力寄り）':'スプリント仕様（出力重視）';
+ target.innerHTML=`<strong>${rivalRoster.label}</strong><br>${rivalRoster.entries.map(e=>`${e.name} ${TYPES[e.setup.type].label}・${e.physics.mass}g`).join(' / ')}<br>${rivalRoster.targetLaps}周 ${endurance}・同じ相手はセッティング後も強さ固定`;
+ if($('rematchRivals'))$('rematchRivals').disabled=!rivalRoster.lastResult;
+}
+function prepareOpponentEntries(force=false){
+ if(race?.active)return;
+ if(!$('addRivals')?.checked||screen!=='test'){clearOpponentCars();renderGrassStandings();renderRosterSummary();return}
+ const count=THREE.MathUtils.clamp(Number($('participantCount').value)||4,2,4)-1,targetLaps=THREE.MathUtils.clamp(Number($('raceLapTarget').value)||3,1,10);
+ if(force)createRivalRoster(count,targetLaps);
+ createOpponentCars(count,physics(),targetLaps);placeCar(0);renderGrassStandings();renderRosterSummary();
+}
 function resetRaceDisplay(message='スタートを待っています'){
- race=null;accum=0;resetPlayback();clearOpponentCars();carContainer.visible=true;placeCar(0);updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('delta').textContent=message;$('progressBar').style.width='0%';renderGrassStandings();updateCondition();updateMotorSound();
+ race=null;accum=0;resetPlayback();clearOpponentCars();carContainer.visible=true;placeCar(0);updateBest();$('lapCount').textContent='1';$('lapLast').textContent='--.--';$('lapBest').textContent='--.--';$('stateRead').textContent='待機中';$('resultTime').textContent='--.-- s';$('delta').textContent=message;$('progressBar').style.width='0%';if($('addRivals')?.checked&&screen==='test')prepareOpponentEntries();else renderGrassStandings();updateCondition();updateMotorSound();
 }
 // v0.3.8: keep the fast forward/outward exit, then show the actual
 // random tumble while the car is still near the rail and inside the scene.
@@ -1159,22 +1212,32 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v091_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v0100_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
+}
+function batteryGraceLaps(setup){
+ const motor=partFor(setup,'motor'),cell=partFor(setup,'battery');
+ const highDemand=motor.rpm>=1.25||motor.heat>=1.45||['speedbridge','double'].includes(activeCourse.profile)||(activeCourse.profile==='custom'&&readCustomCourse().slope>=2);
+ return highDemand?2:cell.capacity>=1.4?4:3;
+}
+function batteryOutputFactor(r,setup){
+ const cell=partFor(setup,'battery'),travel=(r.laps||0)+(r.distance||0)/Math.max(1,ovalLength)-(r.batteryLapBase||0),fade=Math.max(0,travel-batteryGraceLaps(setup));
+ if(fade<=0)return 1;
+ const reservePenalty=Math.max(0,.28-r.battery/100)*.50;
+ return Math.max(.43,1-fade*(.050*cell.sag/Math.max(.65,cell.capacity))-reservePenalty);
 }
 function deriveRunningPhysics(r){
  const p=r.p;
  if(!r.wearEnabled)return p;
  const battery=r.battery/100, tire=r.tire/100, health=r.motorHealth/100;
- const batteryPart=choose('battery');
- const voltageFactor=Math.max(.38,1-(1-battery)*(.36*batteryPart.sag));
+ const voltageFactor=batteryOutputFactor(r,cfg);
  const heatFactor=r.motorTemp>65?Math.max(.60,1-(r.motorTemp-65)*(.0068/motorDurability())):1;
  const healthFactor=.55+.45*health;
  const tractionFactor=.74+.26*Math.max(0,tire);
  const stabilityFactor=.82+.18*Math.max(0,tire);
  return {...p,
   maxSpeed:p.maxSpeed*voltageFactor*heatFactor*healthFactor,
-  acceleration:p.acceleration*(.55+.45*battery)*heatFactor*healthFactor,
+  acceleration:p.acceleration*voltageFactor*heatFactor*healthFactor,
   grip:p.grip*tractionFactor,
   stability:p.stability*stabilityFactor,
   cornerLimit:p.cornerLimit*Math.sqrt(tractionFactor*stabilityFactor),
@@ -1188,7 +1251,9 @@ function accumulateWear(r,dt,advance){
  // Physical model-time, not accelerated wall-clock time.
  const motor=choose('motor'),cell=choose('battery');
  const power=Math.min(1.7,r.v/Math.max(1,r.p.maxSpeed))*motor.rpm*(1+cfg.fine.motorTune*.06);
- r.battery=Math.max(0,r.battery-dt*(.12+.105*power*power)*cell.sag/cell.capacity);
+ const massLoad=Math.pow(r.p.mass/124,.68),slopeLoad=1+Math.max(0,roadSlope(r.distance/Math.max(1,ovalLength)))*2.4;
+ const drainPerLap=5.5*Math.pow(motor.rpm,1.35)*Math.pow(motor.heat,.42)*cell.sag/Math.max(.6,cell.capacity)*massLoad*slopeLoad*(1+cfg.fine.motorTune*.055);
+ r.battery=Math.max(0,r.battery-advance/Math.max(1,ovalLength)*drainPerLap);
  const tire=choose('tire');
  const tireWear=tire.grip>1.1?1.42:tire.grip<.9?.76:1;
  r.tire=Math.max(0,r.tire-advance*(.0032+Math.max(0,power-1)*.002)*tireWear);
@@ -1213,11 +1278,12 @@ function updateCondition(){
  $('tireBar').style.width=tire+'%';
  $('heatBar').style.width=Math.max(0,Math.min(100,(temp-20)/.8))+'%';
  $('conditionDistance').textContent=`累計走行 ${((r?.laps??0)*ovalLength+(r?.distance??0)).toFixed(1)} m`;
- $('conditionNote').textContent=!enabled?'消耗OFF：比較用の一定性能で走行します':r?.active?'消耗・発熱を計算中（再スタートで新品に戻ります）':'走行開始時は新品状態です';
+ const grace=batteryGraceLaps(cfg);
+ $('conditionNote').textContent=!enabled?'消耗OFF：比較用の一定性能で走行します':r?.pitActive?'ピット作業中：ライバル車は走行を継続中':r?.active?`電池性能は約${grace}周維持。その後は重量・モーター・坂の負荷で低下します`:`現在の構成は約${grace}周まで初期性能を維持します`;
 }
-function displayRace(){if(!race)return;const r=race,progress=r.grass?((r.laps*ovalLength+r.distance)/(r.targetLaps*ovalLength)):r.distance/ovalLength;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.crash?.active?r.crash.label+'中':r.playerFinished?(r.playerDNF?'DNF':'ゴール・集計中'):r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.active&&playbackPaused?'一時停止':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,progress*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.grass?Math.min(r.targetLaps,r.laps+1):r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);if(r.grass)renderGrassStandings();updateCondition()}
+function displayRace(){if(!race)return;const r=race,progress=r.grass?((r.laps*ovalLength+r.distance)/(r.targetLaps*ovalLength)):r.distance/ovalLength;$('speedRead').textContent=(r.v*3.6).toFixed(1);$('lapRead').textContent=r.time.toFixed(2);$('maxRead').textContent=(r.maxV*3.6).toFixed(1);$('stateRead').textContent=r.pitActive?'PIT IN':r.crash?.active?r.crash.label+'中':r.playerFinished?(r.playerDNF?'DNF':'ゴール・集計中'):r.failed?'アウト':r.batteryEmpty?'電池切れ':r.done?'完走':r.active&&playbackPaused?'一時停止':r.air?'ジャンプ中':r.active?'走行中':'待機中';$('progressBar').style.width=(Math.min(100,progress*100)).toFixed(1)+'%';$('lapCount').textContent=String(r.grass?Math.min(r.targetLaps,r.laps+1):r.done&&!r.loop&&!r.failed?r.laps:r.laps+1);$('lapLast').textContent=r.lastLap==null?'--.--':r.lastLap.toFixed(2);$('lapBest').textContent=r.bestLap==null?'--.--':r.bestLap.toFixed(2);if(r.grass)renderGrassStandings();updateCondition()}
 function startRace(){
- const p=physics(),grass=$('addRivals').checked,targetLaps=grass?THREE.MathUtils.clamp(Number($('raceLapTarget').value)||3,1,10):1;race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,tire:100,motorTemp:25,motorHealth:100,telemetry:[],grass,targetLaps,playerFinished:false,playerFinishTime:null,playerDNF:false,loop:grass?false:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
+ const p=physics(),grass=$('addRivals').checked,targetLaps=grass?THREE.MathUtils.clamp(Number($('raceLapTarget').value)||3,1,10):1;race={active:true,done:false,failed:false,v:0,time:0,distance:0,maxV:0,p,risk:0,crash:null,wearEnabled:$('wearEnabled').checked,battery:100,batteryLapBase:0,tire:100,motorTemp:25,motorHealth:100,telemetry:[],grass,targetLaps,playerFinished:false,playerFinishTime:null,playerDNF:false,pitRequested:false,pitActive:false,pitStops:0,loop:grass?false:$('loopRun').checked,laps:0,lapStart:0,lastLap:null,bestLap:null,
    peakLateral:0,guidePeak:0,wallContactTime:0,cornerLoss:0,fastestStraight:0,curveTime:0,cornerWarnings:0,air:null,jumps:0,landings:0,landingShock:0,landingPitch:0,bounces:0,lastLanding:'未計測',bounce:null};
  if(grass)createOpponentCars(THREE.MathUtils.clamp(Number($('participantCount').value)||4,2,4)-1,p,targetLaps);else clearOpponentCars();
  carContainer.visible=true;
@@ -1251,17 +1317,19 @@ function stopRace(failed){
 }
 function deriveRivalPhysics(r){
  if(!race?.wearEnabled)return r.p;
- const battery=r.battery/100,tire=r.tire/100,health=r.motorHealth/100,cell=partFor(r.setup,'battery'),motor=partFor(r.setup,'motor');
- const voltageFactor=Math.max(.38,1-(1-battery)*(.36*cell.sag));
+ const tire=r.tire/100,health=r.motorHealth/100,motor=partFor(r.setup,'motor');
+ const voltageFactor=batteryOutputFactor(r,r.setup);
  const durability=motor.durability*Math.max(.65,1-r.setup.fine.motorTune*.10);
  const heatFactor=r.motorTemp>65?Math.max(.60,1-(r.motorTemp-65)*(.0068/durability)):1,healthFactor=.55+.45*health,tractionFactor=.74+.26*tire,stabilityFactor=.82+.18*tire;
- return {...r.p,maxSpeed:r.p.maxSpeed*voltageFactor*heatFactor*healthFactor,acceleration:r.p.acceleration*(.55+.45*battery)*heatFactor*healthFactor,guideCapacity:r.p.guideCapacity*tractionFactor*stabilityFactor};
+ return {...r.p,maxSpeed:r.p.maxSpeed*voltageFactor*heatFactor*healthFactor,acceleration:r.p.acceleration*voltageFactor*heatFactor*healthFactor,guideCapacity:r.p.guideCapacity*tractionFactor*stabilityFactor};
 }
 function accumulateRivalWear(r,dt,advance){
  if(!race?.wearEnabled)return;
  const motor=partFor(r.setup,'motor'),cell=partFor(r.setup,'battery'),tire=partFor(r.setup,'tire'),durability=motor.durability*Math.max(.65,1-r.setup.fine.motorTune*.10);
  const power=Math.min(1.7,r.v/Math.max(1,r.p.maxSpeed))*motor.rpm*(1+r.setup.fine.motorTune*.06);
- r.battery=Math.max(0,r.battery-dt*(.12+.105*power*power)*cell.sag/cell.capacity);
+ const massLoad=Math.pow(r.p.mass/124,.68),slopeLoad=1+Math.max(0,roadSlope(r.distance/Math.max(1,ovalLength)))*2.4;
+ const drainPerLap=5.5*Math.pow(motor.rpm,1.35)*Math.pow(motor.heat,.42)*cell.sag/Math.max(.6,cell.capacity)*massLoad*slopeLoad*(1+r.setup.fine.motorTune*.055);
+ r.battery=Math.max(0,r.battery-advance/Math.max(1,ovalLength)*drainPerLap);
  const tireWear=tire.grip>1.1?1.42:tire.grip<.9?.76:1;r.tire=Math.max(0,r.tire-advance*(.0032+Math.max(0,power-1)*.002)*tireWear);
  const heatMultiplier=motor.heat*(1+r.setup.fine.motorTune*.13);r.motorTemp=Math.max(25,r.motorTemp+dt*((.5+1.05*power*power)*heatMultiplier-.022*(r.motorTemp-25)));
  const stress=Math.max(0,r.motorTemp-57)/45;r.motorHealth=Math.max(0,r.motorHealth-dt*(.0025+.028*stress*stress)*heatMultiplier/durability);
@@ -1290,20 +1358,71 @@ function stepOpponent(r,dt){
  if(r.distance>=ovalLength){
   r.laps++;r.distance-=ovalLength;
   if(r.laps>=r.targetLaps){r.finished=true;r.finishTime=r.time;r.distance=0;positionRaceCar(r.container,1,LANE_OFFSETS[r.lane-1]);return}
+  if(r.battery<24){r.battery=100;r.batteryLapBase=r.laps;r.pitStops++;r.time+=8.5;r.v=0;}
  }
  positionRaceCar(r.container,r.distance/ovalLength,LANE_OFFSETS[r.lane-1]);
  const tireRadius=(partFor(r.setup,'tire').diam/26*.165)*.9;r.wheelAngle-=advance/Math.max(.02,tireRadius);
  for(const wheel of r.wheels){if(wheel.userData.spinAxis==='x')wheel.rotation.x=r.wheelAngle;else wheel.rotation.z=r.wheelAngle}
 }
+let pitSelectedBattery=null,pitDrag=null,pitInstalled=0;
+function syncPitButton(){
+ const button=$('pitSign');if(!button)return;
+ const usable=Boolean(race?.active&&race.grass&&!race.playerFinished&&!race.pitActive&&race.targetLaps>1&&race.laps<race.targetLaps-1);
+ button.disabled=!usable;button.classList.toggle('armed',Boolean(race?.pitRequested));
+ button.textContent=race?.pitRequested?'🔋 ピットイン予約済み（取消）':'🔋 ピットインサインを出す';
+}
+function setPitBatteryOrientation(button,plusTop){button.dataset.plusTop=plusTop?'1':'0';button.classList.toggle('flipped',!plusTop)}
+function initPitPuzzle(){
+ pitSelectedBattery=null;pitDrag=null;pitInstalled=0;
+ document.querySelectorAll('.batterySlot').forEach(slot=>{slot.classList.remove('filled');slot.disabled=false;slot.textContent=Number(slot.dataset.slot)===0?'上段スロット':'下段スロット'});
+ $('spareBatteries').innerHTML=[0,1].map(i=>`<button type="button" class="pitBattery" data-battery="${i}" aria-label="交換用電池${i+1}"><span class="batteryPole top">＋</span><span class="batteryPole bottom">－</span></button>`).join('');
+ document.querySelectorAll('.pitBattery').forEach(button=>{setPitBatteryOrientation(button,Math.random()>.5);button.addEventListener('pointerdown',startPitBatteryDrag)});
+ $('pitProgress').textContent='0 / 2 本セット';$('pitMessage').textContent='電池をタップして向きを合わせてください';
+}
+function beginPitStop(){
+ if(!race?.grass||race.playerFinished)return;
+ race.pitRequested=false;race.pitActive=true;race.v=0;positionRaceCar(carContainer,0,LANE_OFFSETS[playerLane-1]);
+ initPitPuzzle();$('pitOverlay').classList.remove('hidden');$('pitOverlay').setAttribute('aria-hidden','false');$('stateRead').textContent='PIT IN';$('runLog').textContent='ピットインしました。ライバルは走行を続けています。電池2本の向きを合わせて装着してください。';syncPitButton();playTone(420,.18,'square',.14,620);
+}
+function installPitBattery(button,slot){
+ if(!race?.pitActive||button.classList.contains('installed')||slot.classList.contains('filled'))return false;
+ const expected=Number(slot.dataset.slot)===0,actual=button.dataset.plusTop==='1';
+ if(expected!==actual){$('pitMessage').textContent='＋/－の向きが逆です。電池をタップして反転してください。';playTone(150,.12,'square',.10,95);return false}
+ button.classList.add('installed');button.classList.remove('selected','dragging');slot.classList.add('filled');slot.disabled=true;slot.textContent='装着OK';pitInstalled++;pitSelectedBattery=null;
+ $('pitProgress').textContent=`${pitInstalled} / 2 本セット`;$('pitMessage').textContent=pitInstalled===2?'交換完了！ コースへ戻ります':'もう1本を正しい向きで装着してください';playTone(720,.12,'sine',.12,920);
+ if(pitInstalled===2)setTimeout(completePitStop,520);return true;
+}
+function completePitStop(){
+ if(!race?.pitActive)return;
+ race.battery=100;race.batteryLapBase=race.laps;race.pitActive=false;race.pitStops++;race.v=0;
+ $('pitOverlay').classList.add('hidden');$('pitOverlay').setAttribute('aria-hidden','true');$('stateRead').textContent='再スタート';$('runLog').textContent=`電池交換完了。${race.laps+1}周目へ復帰します（ピット${race.pitStops}回）。`;syncPitButton();playTone(760,.2,'square',.14,1180);
+}
+function startPitBatteryDrag(event){
+ if(!race?.pitActive)return;const button=event.currentTarget;if(button.classList.contains('installed'))return;
+ const rect=button.getBoundingClientRect();pitDrag={button,startX:event.clientX,startY:event.clientY,left:rect.left,top:rect.top,moved:false};button.setPointerCapture(event.pointerId);button.addEventListener('pointermove',movePitBatteryDrag);button.addEventListener('pointerup',endPitBatteryDrag,{once:true});
+}
+function movePitBatteryDrag(event){
+ if(!pitDrag||pitDrag.button!==event.currentTarget)return;const dx=event.clientX-pitDrag.startX,dy=event.clientY-pitDrag.startY;
+ if(!pitDrag.moved&&Math.hypot(dx,dy)<8)return;pitDrag.moved=true;const button=pitDrag.button;button.classList.add('dragging');button.style.left=`${pitDrag.left+dx}px`;button.style.top=`${pitDrag.top+dy}px`;
+}
+function endPitBatteryDrag(event){
+ if(!pitDrag||pitDrag.button!==event.currentTarget)return;const {button,moved}=pitDrag;button.removeEventListener('pointermove',movePitBatteryDrag);button.classList.remove('dragging');button.style.left='';button.style.top='';pitDrag=null;
+ if(moved){const slot=[...document.querySelectorAll('.batterySlot:not(.filled)')].find(s=>{const r=s.getBoundingClientRect();return event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom});if(slot)installPitBattery(button,slot);else $('pitMessage').textContent='電池ボックスのスロット内へ置いてください';return}
+ const plusTop=button.dataset.plusTop!=='1';setPitBatteryOrientation(button,plusTop);document.querySelectorAll('.pitBattery').forEach(b=>b.classList.toggle('selected',b===button));pitSelectedBattery=button;$('pitMessage').textContent=`向きを変更しました。対応する${plusTop?'上段':'下段'}スロットへセットしてください`;
+}
 function finishGrassRace(){
  const r=race;if(!r?.grass||r.done)return;
  r.active=false;r.done=true;playbackPaused=true;syncTransportUI();renderGrassStandings(true);
  const order=grassOrder(),playerRank=order.findIndex(entry=>entry.player)+1,playerEntry=order.find(entry=>entry.player);
+ battleProgress.races=(battleProgress.races||0)+1;if(playerRank===1&&!playerEntry.dnf)battleProgress.wins=(battleProgress.wins||0)+1;else battleProgress.losses=(battleProgress.losses||0)+1;
+ if(rivalRoster){rivalRoster.lastResult={rank:playerRank,dnf:playerEntry.dnf,time:Date.now()};try{localStorage.setItem(RIVAL_ROSTER_KEY,JSON.stringify(rivalRoster))}catch{}}
+ try{localStorage.setItem(BATTLE_PROGRESS_KEY,JSON.stringify(battleProgress))}catch{}
  $('resultTime').textContent=playerEntry.dnf?'DNF':`${playerRank}位`;
  $('delta').textContent=playerEntry.dnf?'コースアウトにより未完走':`${r.targetLaps}周 草レース / ${playerEntry.finishTime.toFixed(2)}秒`;
  const rivals=opponentRacers.map(o=>`${o.name}：${TYPES[o.setup.type].label} ${o.p.mass}g（${GROUPS.map(g=>g.parts[o.setup.parts[g.key]].name).join('・')}）`).join(' / ');
- $('runLog').textContent=`草レース終了。プレイヤーは${playerEntry.dnf?'DNF':`${playerRank}位`}。${order.map((entry,index)=>`${index+1}. ${entry.name} ${entry.dnf?'DNF':entry.finishTime.toFixed(2)+'秒'}`).join(' / ')}。ライバル設定：${rivals}`;
+ $('runLog').textContent=`草レース終了。プレイヤーは${playerEntry.dnf?'DNF':`${playerRank}位`}。${order.map((entry,index)=>`${index+1}. ${entry.name} ${entry.dnf?'DNF':entry.finishTime.toFixed(2)+'秒'}`).join(' / ')}。同じ相手は保存済みです。ガレージでセッティング後、「同じ相手と再戦」で比較できます。ライバル設定：${rivals}`;
  $('stateRead').textContent=playerEntry.dnf?'DNF':`${playerRank}位`;playTone(playerRank===1?1040:720,.32,'square',.15,playerRank===1?1480:920);updateMotorSound();
+ renderRosterSummary();syncPitButton();
 }
 function checkGrassFinish(){if(race?.grass&&race.playerFinished&&opponentRacers.every(r=>r.finished))finishGrassRace()}
 // Simulate the distance remaining until the *next* corner. A turn needs a
@@ -1430,6 +1549,9 @@ function raceStep(dt){
    localStorage.setItem(recordsKey,JSON.stringify(records));updateBest();
   }
   if(r.grass){
+   if(r.pitRequested&&r.laps<r.targetLaps){
+    r.distance-=ovalLength;r.lapStart=r.time;r.jumps=0;beginPitStop();renderGrassStandings();return;
+   }
    if(r.laps>=r.targetLaps){
     r.distance=0;r.playerFinished=true;r.playerFinishTime=r.time;r.v=0;positionRaceCar(carContainer,1,LANE_OFFSETS[playerLane-1]);
     $('resultTime').textContent=r.time.toFixed(2)+' s';$('delta').textContent='プレイヤーゴール：ライバルの到着を待っています';renderGrassStandings();checkGrassFinish();return;
@@ -1502,14 +1624,20 @@ $('wearEnabled').addEventListener('change',()=>{if(!race?.active){race=null;upda
 $('loopRun').addEventListener('change',()=>{if(race?.active){race.loop=$('loopRun').checked;syncTransportUI();}});
 function syncGrassControls(reset=true){
  const enabled=$('addRivals').checked;$('grassPanel').classList.toggle('active',enabled);$('participantCount').disabled=!enabled;$('raceLapTarget').disabled=!enabled;$('loopRun').disabled=enabled;
+ $('newRivals').disabled=!enabled;if(!enabled)$('rematchRivals').disabled=true;
  if(enabled)$('loopRun').checked=false;else $('loopRun').checked=true;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent=enabled?'草レース / 最大4台 / 個別セッティング / ゴール順位判定':'プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
  if(screen==='test'){$('overTitle').textContent=enabled?'GRASS RACE':'SOLO COURSE TEST';$('overHint').textContent=enabled?'最大4台 / 周回制 / ゴール順位判定':'プレイヤー1台 / 透明ガイド壁4レーン複合コース'}
  if(reset)resetRaceDisplay(enabled?'草レース設定中：台数と周回数を選んでください':'ソロ試走モード');
+ renderRosterSummary();
 }
 $('addRivals').addEventListener('change',()=>syncGrassControls(true));
-$('participantCount').addEventListener('change',()=>resetRaceDisplay(`${$('participantCount').value}台で草レースを行います`));
-$('raceLapTarget').addEventListener('change',()=>resetRaceDisplay(`${$('raceLapTarget').value}周の草レースを行います`));
+$('participantCount').addEventListener('change',()=>{createRivalRoster(THREE.MathUtils.clamp(Number($('participantCount').value)||4,2,4)-1,THREE.MathUtils.clamp(Number($('raceLapTarget').value)||3,1,10));resetRaceDisplay(`${$('participantCount').value}台で草レースを行います`)});
+$('raceLapTarget').addEventListener('change',()=>{createRivalRoster(THREE.MathUtils.clamp(Number($('participantCount').value)||4,2,4)-1,THREE.MathUtils.clamp(Number($('raceLapTarget').value)||3,1,10));resetRaceDisplay(`${$('raceLapTarget').value}周の草レースを行います`)});
+$('newRivals').addEventListener('click',()=>{prepareOpponentEntries(true);$('delta').textContent='新しい対戦相手がエントリーしました';$('runLog').textContent='現在のプレイヤー性能と周回数を基準に、新しいライバルを編成しました。'});
+$('rematchRivals').addEventListener('click',()=>{resetRaceDisplay('同じメンバーとの再戦準備が整いました');$('runLog').textContent='前回と同じライバル・同じ性能で再戦します。セッティング変更の効果を確かめてください。'});
+$('pitSign').addEventListener('click',()=>{if(!race?.active||!race.grass||race.pitActive)return;race.pitRequested=!race.pitRequested;$('runLog').textContent=race.pitRequested?'ピットインサインを出しました。次にスタートラインを通過した時に停止します。':'ピットイン予約を取り消しました。';syncPitButton()});
+document.querySelectorAll('.batterySlot').forEach(slot=>slot.addEventListener('click',()=>{if(pitSelectedBattery)installPitBattery(pitSelectedBattery,slot)}));
 $('laneSelect').addEventListener('change',event=>{
  playerLane=THREE.MathUtils.clamp(Number(event.target.value)||1,1,TRACK_LANE_COUNT);try{localStorage.setItem(LANE_PREF_KEY,String(playerLane))}catch{}
  resetRaceDisplay(`レーン${playerLane}を選択中`);$('runLog').textContent=`スタート位置${playerLane}番（${playerLane===1?'最内側':playerLane===4?'最外側':'中間'}レーン）から${$('addRivals').checked?'草レース':'試走'}します。`;
@@ -1549,7 +1677,7 @@ function restoreRaceFrame(index){
 function trimFutureFrames(){if(frameCursor<frameHistory.length-1)frameHistory.length=frameCursor+1}
 function advancePhysicsTick(){
  if(!race?.active)return;
- if(!race.playerFinished)raceStep(fixed);
+ if(!race.playerFinished){if(race.pitActive){race.time+=fixed;race.motorTemp=Math.max(25,race.motorTemp-fixed*1.8)}else raceStep(fixed)}
  if(race?.active&&race.grass){for(const rival of opponentRacers)stepOpponent(rival,fixed);checkGrassFinish()}
  transportTick++;
  if(transportTick>=4||!race.active){transportTick=0;recordRaceFrame()}
@@ -1565,6 +1693,8 @@ function syncTransportUI(){
  $('stepForward').disabled=!exists||Boolean(race?.grass)||!playbackPaused||(!race.active&&frameCursor>=frameHistory.length-1);
  $('slowRun').textContent=['スロー：通常','スロー：1/2','スロー：1/4','スロー：1/8'][slowIndex];
  $('transportStatus').textContent=`${['通常4倍','スロー2倍','スロー1倍','スロー0.5倍'][slowIndex]} / ${playbackPaused?'一時停止中・コマ送り可能':live?'再生中':'停止中'} / コマ送りは1/30秒`;
+ const grassEnabled=$('addRivals').checked;$('addRivals').disabled=live;$('participantCount').disabled=!grassEnabled||live;$('raceLapTarget').disabled=!grassEnabled||live;$('newRivals').disabled=!grassEnabled||live;$('rematchRivals').disabled=!grassEnabled||live||!rivalRoster?.lastResult;$('laneSelect').disabled=live;$('courseSelect').disabled=live;
+ syncPitButton();
 }
 $('pauseRun').onclick=()=>{if(!race?.active)return;playbackPaused=true;accum=0;if(transportTick!==0){recordRaceFrame();transportTick=0}displayRace();syncTransportUI();updateMotorSound()};
 $('slowRun').onclick=()=>{slowIndex=(slowIndex+1)%SLOW_RATES.length;accum=0;syncTransportUI()};
