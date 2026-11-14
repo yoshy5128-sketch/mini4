@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTougeCar,loadTougeDesign } from './touge-cars.js?v=090';
+import { buildTougeCar,loadTougeDesign } from './touge-cars.js?v=091';
 
 const $=id=>document.getElementById(id);
 const TYPES=[
@@ -750,7 +750,9 @@ const trackSign=box(trackGroup,3,.05,.85,mat(0x1a3442),0,.01,0);
 
 // v0.4.0 - The original stable, unlit oval is untouched. A separate surface
 // adds slopes and a jump, without any coplanar overlays (no Z fighting).
-const flatTrackMeshes=[...trackGroup.children];
+// The rival container is live race content, not one of the obsolete oval
+// surfaces.  Including it here made showCourse() hide every opponent model.
+const flatTrackMeshes=[...trackGroup.children].filter(object=>object!==opponentCarsGroup);
 const technicalGroup=new THREE.Group();trackGroup.add(technicalGroup);
 const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x)};
 const CUSTOM_COURSE_KEY='mini4wd_lab_custom_course_v1';
@@ -962,13 +964,14 @@ function showCourse(){
  flatTrackMeshes.forEach(o=>o.visible=o===trackGround);
  trackGround.visible=true;
  technicalGroup.visible=false;modularCourseGroup.visible=true;
+ opponentCarsGroup.visible=true;
  const heading=document.getElementById('courseHeading');
  if(heading)heading.textContent=`4-LANE CIRCUIT / ${activeCourse.name}`;
  const selectLabel=document.querySelector('label[for="courseSelect"]');if(selectLabel)selectLabel.textContent='4レーンコース選択';
  const description=document.getElementById('courseDescription');
  if(description)description.textContent=`${activeCourse.description} 全長 約${ovalLength.toFixed(1)}m。透明ガイド壁を持つワイド4レーン規格。`;
  const legend=document.querySelector('#testPane .legend');if(legend)legend.textContent=$('addRivals')?.checked?'草レース / 最大4台 / 個別セッティング / ゴール順位判定':'プレイヤー1台で試走 / ワイド4レーン / 透明ガイド壁 / 走行テンポ4倍';
- const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.9.0：最大4台・周回数指定・順位判定に対応した草レースを追加しました。';
+ const notice=document.querySelector('#testPane .notice');if(notice)notice.textContent='Ver.0.9.1：草レースでライバル車が確実に表示されるよう修正しました。';
  const selected=document.getElementById('courseSelect');if(selected)selected.value=courseMode;
  const laneSelect=document.getElementById('laneSelect');if(laneSelect)laneSelect.value=String(playerLane);
 }
@@ -1041,6 +1044,7 @@ function calibratedRivalPhysics(setup,index,playerPhysics){
 }
 function createOpponentCars(count,playerPhysics,targetLaps){
  clearOpponentCars();
+ opponentCarsGroup.visible=true;
  const lanes=[1,2,3,4].filter(lane=>lane!==playerLane).slice(0,count);
  lanes.forEach((lane,index)=>{
   const setup=rivalSetup(index),color=RIVAL_COLORS[index],design={...loadTougeDesign(setup.type),color,bumperColor:'#'+new THREE.Color(color).multiplyScalar(.62).getHexString(),wheelColor:index===0?'#e7f5ff':index===1?'#f3d6ff':'#ffe0b8'};
@@ -1155,7 +1159,7 @@ function updateCrashAnimation(dt){
 // Ver.0.4.9: optional long-run wear. Values are game-balance prototypes,
 // not laboratory measurements. Never mutate the setup's reference physics.
 function raceRecordKey(r=race){
- const base=`${courseMode}_4lane_v090_lane${playerLane}`;
+ const base=`${courseMode}_4lane_v091_lane${playerLane}`;
  return r?.wearEnabled?base+'_wear050':base;
 }
 function deriveRunningPhysics(r){
